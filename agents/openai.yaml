@@ -1,0 +1,4 @@
+interface:
+  display_name: "Build AI-First Project"
+  short_description: "Create agent-maintainable project harnesses"
+  default_prompt: "Use $build-ai-first-project to audit or initialize this repository for reliable AI-agent maintenance."

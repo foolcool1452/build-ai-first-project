@@ -1,0 +1,39 @@
+{
+  "$schema": "./harness.schema.json",
+  "schemaVersion": 1,
+  "project": {
+    "name": {{PROJECT_NAME_JSON}},
+    "adoptionMode": "{{MODE}}",
+    "specPersistence": "{{SPEC_MODEL}}"
+  },
+  "guidance": {
+    "entrypoint": "AGENTS.md",
+    "maxLines": 120,
+    "adapters": {
+      "claude": "CLAUDE.md"
+    }
+  },
+  "knowledge": {
+    "index": "docs/INDEX.md",
+    "architecture": "ARCHITECTURE.md",
+    "product": "docs/product/index.md"{{OPTIONAL_KNOWLEDGE}}
+  },
+  "commands": {{COMMANDS_JSON}},
+  "validation": {
+    "freshnessDays": 90,
+    "requiredChecks": [
+      "structure",
+      "guidance-budget",
+      "adapter-consistency",
+      "links",
+      "metadata",
+      "plan-state",
+      "commands",
+      "architecture"
+    ]
+  },
+  "architecture": {
+    "enforced": false,
+    "zones": []
+  }
+}
