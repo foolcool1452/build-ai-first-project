@@ -13,7 +13,7 @@
 
 1. Capture goal, users, acceptance criteria, risks, operational environment, and non-goals before choosing framework details.
 2. Select a stable, well-documented stack with deterministic local commands. Prefer inspectable abstractions and text or JSON interfaces.
-3. Preview scaffolding with `scaffold_project.py <repo> --mode greenfield`; the default `core` profile omits optional branches, while `--knowledge-profile full` adds plans, operations, quality, and generated knowledge.
+3. Preview scaffolding with `scaffold_project.py <repo> --mode greenfield`; the fixed landing set covers routing, product intent, architecture, plans, and the collaboration surfaces, with everything else omitted until needed.
 4. Choose a specification model explicitly. Default to `living` when product specifications will remain contracts.
 5. Create the harness before substantive product code: guidance, manifest, product intent, current architecture skeleton, validation entrypoint, and a plan template when multi-session work requires it.
 6. Implement one vertical golden path that exercises setup, test, logging, error handling, and user-visible validation.
@@ -124,7 +124,7 @@ When omitting both branches from a project, remove the declarations from `.ai/ha
 Run periodically or after repeated agent failures:
 
 - check guidance budgets, broken links, stale verification dates, and conflicting scoped rules;
-- regenerate schemas and derived documentation;
+- regenerate derived documentation;
 - scan for repeated local helpers, boundary violations, untyped external data, and opaque errors;
 - update evidenced quality gaps and technical-debt entries;
 - remove rules now enforced mechanically;

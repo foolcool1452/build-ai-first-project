@@ -1,5 +1,4 @@
 {
-  "$schema": "./harness.schema.json",
   "schemaVersion": 1,
   "project": {
     "name": {{PROJECT_NAME_JSON}},
@@ -17,12 +16,12 @@
     "index": "docs/INDEX.md",
     "architecture": "ARCHITECTURE.md",
     "product": "docs/product/index.md",
+    "plans": "docs/plans",
     "agents": "docs/agents/REGISTRY.md",
-    "tasks": "docs/tasks"{{OPTIONAL_KNOWLEDGE}}
+    "tasks": "docs/tasks"
   },
   "commands": {{COMMANDS_JSON}},
   "validation": {
-    "freshnessDays": 90,
     "requiredChecks": [
       "structure",
       "guidance-budget",

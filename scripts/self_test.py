@@ -84,14 +84,19 @@ def main() -> int:
         preview = run(SCAFFOLD, str(green), "--mode", "greenfield")
         assert "Preview only" in preview.stdout
         assert not (green / "AGENTS.md").exists()
-        run(SCAFFOLD, str(green), "--mode", "greenfield", "--knowledge-profile", "full", "--apply")
+        run(SCAFFOLD, str(green), "--mode", "greenfield", "--apply")
         assert '\n    "setup": []' in (green / ".ai/harness.json").read_text(encoding="utf-8")
         for tracked in (
-            "docs/plans/active/README.md", "docs/plans/completed/README.md",
-            ".agents/skills/README.md",
+            "AGENTS.md", "CLAUDE.md", "ARCHITECTURE.md",
+            "docs/INDEX.md", "docs/product/index.md",
+            "docs/agents/REGISTRY.md", "docs/tasks/README.md",
+            "docs/plans/TEMPLATE.md", "docs/plans/active/README.md",
+            ".ai/harness.json",
             "tools/ai/sync_skill_adapters.py", "tools/ai/validate_harness.py",
         ):
             assert (green / tracked).is_file(), tracked
+        for removed in (".ai/harness.schema.json", "docs/quality/QUALITY.md", "docs/operations/index.md"):
+            assert not (green / removed).exists(), removed
         run(VALIDATE, str(green))
         audit = run(AUDIT, str(green), "--format", "json")
         report = json.loads(audit.stdout)
@@ -114,15 +119,6 @@ def main() -> int:
         collision = run(SCAFFOLD, str(blocked), "--apply", expected=1)
         assert "Blocking path conflicts" in collision.stdout
         assert not (blocked / ".ai").exists()
-
-        core = base / "core-profile"
-        core.mkdir()
-        run(SCAFFOLD, str(core), "--mode", "greenfield", "--apply")
-        core_manifest = json.loads((core / ".ai/harness.json").read_text(encoding="utf-8"))
-        assert all(key not in core_manifest["knowledge"] for key in ("plans", "operations", "quality", "generated"))
-        assert not (core / "docs/plans").exists()
-        core_validation = run(VALIDATE, str(core))
-        assert core_validation.stdout.count("PLACEHOLDER_CONTENT") == 1
 
         quoted_name = base / "quoted-name"
         quoted_name.mkdir()
@@ -151,7 +147,7 @@ def main() -> int:
             json.dumps({"name": "brownfield", "scripts": {"test": "node --test", "lint": "eslint .", "build": "tsc"}}),
             encoding="utf-8",
         )
-        run(SCAFFOLD, str(brown), "--mode", "brownfield", "--knowledge-profile", "full", "--apply")
+        run(SCAFFOLD, str(brown), "--mode", "brownfield", "--apply")
         assert (brown / "AGENTS.md").read_text(encoding="utf-8") == existing_guidance
         manifest_path = brown / ".ai/harness.json"
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -183,7 +179,7 @@ def main() -> int:
         malformed["validation"] = "oops"
         write_json(manifest_path, malformed)
         malformed_report = run(VALIDATE, str(brown), expected=1)
-        assert "SCHEMA_CONTRACT" in malformed_report.stdout and "Traceback" not in malformed_report.stderr
+        assert "MANIFEST_CONTRACT" in malformed_report.stdout and "Traceback" not in malformed_report.stderr
         baseline_manifest = json.loads((green / ".ai/harness.json").read_text(encoding="utf-8"))
         for block in ("project", "guidance", "knowledge", "commands", "validation", "architecture"):
             for malformed_value in (None, "oops", []):
@@ -200,39 +196,11 @@ def main() -> int:
         run(VALIDATE, str(brown), "--strict")
         write_json(manifest_path, json.loads((green / ".ai/harness.json").read_text(encoding="utf-8")))
 
-        schema_path = brown / ".ai/harness.schema.json"
-        schema_content = schema_path.read_bytes()
-        schema_path.unlink()
-        missing_schema = run(VALIDATE, str(brown), expected=1)
-        assert "SCHEMA_MISSING" in missing_schema.stdout
-        schema_path.write_bytes(schema_content)
-        schema_path.write_text('{"type":"object"}\n', encoding="utf-8")
-        weakened_manifest = {
-            "$schema": "./harness.schema.json", "schemaVersion": 1,
-            "validation": {"requiredChecks": ["structure"]},
-        }
-        write_json(manifest_path, weakened_manifest)
-        weakened_report = run(VALIDATE, str(brown), expected=1)
-        assert "SCHEMA_DRIFT" in weakened_report.stdout
-        schema_path.write_bytes(schema_content)
-        write_json(manifest_path, json.loads((green / ".ai/harness.json").read_text(encoding="utf-8")))
         missing_name = json.loads(manifest_path.read_text(encoding="utf-8"))
         missing_name["project"].pop("name")
         write_json(manifest_path, missing_name)
         name_report = run(VALIDATE, str(brown), expected=1)
-        assert "SCHEMA_CONTRACT" in name_report.stdout
-        write_json(manifest_path, json.loads((green / ".ai/harness.json").read_text(encoding="utf-8")))
-
-        loose_schema = brown / ".ai/loose.schema.json"
-        loose_schema.write_text('{"type":"object"}\n', encoding="utf-8")
-        bypass = json.loads(manifest_path.read_text(encoding="utf-8"))
-        bypass["$schema"] = "./loose.schema.json"
-        bypass["commands"] = {"test": [{"argv": "not-an-array"}]}
-        bypass["validation"]["requiredChecks"] = ["structure"]
-        write_json(manifest_path, bypass)
-        bypass_report = run(VALIDATE, str(brown), expected=1)
-        assert "SCHEMA_PATH" in bypass_report.stdout and "$.commands.test[0].argv" in bypass_report.stdout
-        loose_schema.unlink()
+        assert "MANIFEST_CONTRACT" in name_report.stdout
         write_json(manifest_path, json.loads((green / ".ai/harness.json").read_text(encoding="utf-8")))
 
         minimal_command = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -258,7 +226,7 @@ def main() -> int:
 
         (brown / ".ai/harness.json").write_text("{}\n", encoding="utf-8", newline="\n")
         empty_manifest = run(VALIDATE, str(brown), expected=1)
-        assert "SCHEMA_CONTRACT" in empty_manifest.stdout
+        assert "MANIFEST_CONTRACT" in empty_manifest.stdout
         write_json(manifest_path, json.loads((green / ".ai/harness.json").read_text(encoding="utf-8")))
 
         (brown / ".ai/harness.json").write_text(
@@ -273,27 +241,6 @@ def main() -> int:
         deep_report = run(VALIDATE, str(brown), expected=1)
         assert "Traceback" not in deep_report.stderr
         write_json(manifest_path, json.loads((green / ".ai/harness.json").read_text(encoding="utf-8")))
-
-        # The depth guard itself lives under the schema walker; exercise it directly
-        # because the published schema's typed nodes short-circuit long chains.
-        sys.path.insert(0, str(SCRIPTS))
-        try:
-            from validate_project import MAX_SCHEMA_DEPTH
-            from validate_project import schema_violations as _sv
-
-            deep_manifest: dict = {"leaf": True}
-            for _ in range(MAX_SCHEMA_DEPTH * 4):
-                deep_manifest = {"child": deep_manifest}
-            permissive_chain: dict = {"type": "string"}
-            for _ in range(MAX_SCHEMA_DEPTH * 4):
-                permissive_chain = {
-                    "type": "object",
-                    "additionalProperties": permissive_chain,
-                }
-            depth_errors = _sv(deep_manifest, permissive_chain)
-            assert any("supported schema depth" in item for item in depth_errors)
-        finally:
-            sys.path.remove(str(SCRIPTS))
 
         hidden_plan_dir = brown / "docs/plans/active/wip"
         hidden_plan_dir.mkdir(parents=True)
@@ -364,6 +311,7 @@ def main() -> int:
 
         active_plan = brown / "docs/plans/active/duplicate.md"
         completed_plan = brown / "docs/plans/completed/duplicate.md"
+        completed_plan.parent.mkdir(parents=True, exist_ok=True)
         plan_body = (brown / "docs/plans/TEMPLATE.md").read_text(encoding="utf-8").replace("Status: active", "Status: complete")
         plan_body = plan_body.replace("Sources:", "Plan ID: PLAN-1\nSources:")
         active_plan.write_text(plan_body, encoding="utf-8")
@@ -373,19 +321,15 @@ def main() -> int:
         active_plan.unlink()
         completed_plan.unlink()
 
+        # Intentional omission: plans can be undeclared and removed wholesale.
         optional = json.loads(manifest_path.read_text(encoding="utf-8"))
-        for key in ("plans", "operations", "quality", "generated"):
-            optional["knowledge"].pop(key)
+        optional["knowledge"].pop("plans")
         write_json(manifest_path, optional)
-        for branch in ("plans", "operations", "quality", "generated"):
-            shutil.rmtree(brown / "docs" / branch)
+        shutil.rmtree(brown / "docs/plans")
         knowledge_index = brown / "docs/INDEX.md"
         index_lines = knowledge_index.read_text(encoding="utf-8").splitlines()
         knowledge_index.write_text(
-            "\n".join(
-                line for line in index_lines
-                if not any(token in line for token in ("(plans/", "(operations/", "(quality/", "(generated/"))
-            ) + "\n",
+            "\n".join(line for line in index_lines if "(plans/" not in line) + "\n",
             encoding="utf-8",
         )
         run(VALIDATE, str(brown))
@@ -403,15 +347,13 @@ def main() -> int:
         assert "VERIFICATION_DATE" in bad_date.stdout
         architecture.write_text(original_architecture, encoding="utf-8")
 
-        details = brown / "docs/architecture/index.md"
-        original_details = details.read_text(encoding="utf-8")
-        details.write_text(original_details.replace("Status: observed", "Status: imaginary").replace(
-            next(line for line in original_details.splitlines() if line.startswith("Last verified:")),
+        architecture.write_text(original_architecture.replace("Status: observed", "Status: imaginary").replace(
+            next(line for line in original_architecture.splitlines() if line.startswith("Last verified:")),
             "Last verified: 2026-99-99",
         ), encoding="utf-8")
         metadata_report = run(VALIDATE, str(brown), expected=1)
         assert "METADATA_STATUS" in metadata_report.stdout and "VERIFICATION_DATE" in metadata_report.stdout
-        details.write_text(original_details, encoding="utf-8")
+        architecture.write_text(original_architecture, encoding="utf-8")
 
         spaced = brown / "docs/space file.md"
         spaced.write_text(
@@ -476,7 +418,7 @@ def main() -> int:
         guarded.mkdir()
         run(SCAFFOLD, str(guarded), "--mode", "greenfield", "--apply")
         guarded_skill = guarded / ".agents/skills/example"
-        guarded_skill.mkdir()
+        guarded_skill.mkdir(parents=True)
         (guarded_skill / "SKILL.md").write_text(
             "---\nname: example\ndescription: Guarded repository workflow.\n---\n", encoding="utf-8"
         )

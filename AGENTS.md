@@ -12,7 +12,7 @@ This repository *is* the build-ai-first-project skill: it teaches other reposito
 
 - Scripts stay dependency-free; `tomllib` import pins Python 3.11+.
 - Scaffolding is preview-by-default; never write over an existing project file, and keep the junction/containment guards in every write path.
-- Manifests, schemas, and `.ai-source.json` markers are untrusted input: parse with the strict loader (size caps, duplicate-key rejection) and never let parse failures crash without a finding.
+- Manifests and `.ai-source.json` markers are untrusted input: parse with the strict loader (size caps, duplicate-key rejection) and never let parse failures crash without a finding.
 - Manifest commands run only through argv arrays, never shells.
 - After changing validator behavior, extend `scripts/self_test.py` in the same change and run it before committing.
 

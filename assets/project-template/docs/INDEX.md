@@ -9,11 +9,11 @@ Sources: `.ai/harness.json` and linked repository artifacts
 | Need | Canonical source |
 |---|---|
 | Intended product behavior | [Product contract](product/index.md) |
-| Current system structure | [System map](../ARCHITECTURE.md) and [architecture details](architecture/index.md) |
-| Why a durable decision was made | [Decision records](architecture/decisions/) |
+| Current system structure | [System map](../ARCHITECTURE.md) |
 | Who works here and their status | [Agent registry](agents/REGISTRY.md) |
 | Lightweight per-agent todos | [Task boards](tasks/) |
-{{OPTIONAL_ROUTING_ROWS}}
+| Resumable multi-step work | [Plan template](plans/TEMPLATE.md) and [active plans](plans/active/) |
+| Decision records, operations, quality, generated knowledge | Intentionally omitted; create the branch and declare it in `.ai/harness.json` when first needed. |
 
 ## Reading rule
 

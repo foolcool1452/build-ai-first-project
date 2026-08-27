@@ -13,7 +13,7 @@ Use Python 3.11 or newer for the bundled audit, scaffold, sync, and validation s
 ## Choose the operation
 
 1. **Audit only**: Run `scripts/audit_project.py <repo>`. Do not modify the repository.
-2. **Initialize a new project**: Follow the greenfield workflow in `references/workflows.md`, preview with `scripts/scaffold_project.py <repo> --mode greenfield`, add `--knowledge-profile full` only when plans, operations, quality, and generated branches are already useful, then rerun with `--apply` after review.
+2. **Initialize a new project**: Follow the greenfield workflow in `references/workflows.md`, preview with `scripts/scaffold_project.py <repo> --mode greenfield`, then rerun with `--apply` after review. Branches beyond the fixed landing set are created on first need and declared in `.ai/harness.json`.
 3. **Retrofit an existing project**: Follow the brownfield workflow in `references/workflows.md`. Audit first, establish a passing baseline, preview `--mode brownfield`, and add constraints incrementally.
 4. **Validate or repair a harness**: Run `scripts/validate_project.py <repo>`. Read `references/validation.md` before changing severity, budgets, or freshness rules.
 

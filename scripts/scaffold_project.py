@@ -26,18 +26,12 @@ def render(text: str, replacements: dict[str, str]) -> str:
     return text
 
 
-OPTIONAL_BRANCHES = ("docs/plans", "docs/operations", "docs/quality", "docs/generated")
-
-
-def template_files(profile: str) -> list[tuple[Path, Path]]:
+def template_files() -> list[tuple[Path, Path]]:
     files = []
     for path in TEMPLATE_ROOT.rglob("*"):
         if not path.is_file():
             continue
-        relative = path.relative_to(TEMPLATE_ROOT)
-        if profile == "core" and any(relative.as_posix().startswith(prefix + "/") for prefix in OPTIONAL_BRANCHES):
-            continue
-        files.append((path, relative))
+        files.append((path, path.relative_to(TEMPLATE_ROOT)))
     files.append((VALIDATOR_SOURCE, Path("tools/ai/validate_harness.py")))
     files.append((SKILL_ADAPTER_SOURCE, Path("tools/ai/sync_skill_adapters.py")))
     return sorted(files, key=lambda item: item[1].as_posix())
@@ -49,10 +43,6 @@ def main() -> int:
     parser.add_argument("--mode", choices=("auto", "greenfield", "brownfield"), default="auto")
     parser.add_argument("--spec-model", choices=("living", "flow-forward", "flow-back"))
     parser.add_argument("--project-name")
-    parser.add_argument(
-        "--knowledge-profile", choices=("core", "full"), default="core",
-        help="Create core knowledge (default), or include plans/operations/quality/generated branches",
-    )
     parser.add_argument("--apply", action="store_true", help="Create missing files; default is preview only")
     args = parser.parse_args()
 
@@ -75,32 +65,6 @@ def main() -> int:
         "ARCH_STATUS": arch_status,
         "INTENT_STATUS": intent_status,
         "COMMANDS_JSON": commands_json,
-        "OPTIONAL_KNOWLEDGE": (
-            ',\n    "plans": "docs/plans",\n    "operations": "docs/operations/index.md",'
-            '\n    "quality": "docs/quality/QUALITY.md",\n    "generated": "docs/generated"'
-            if args.knowledge_profile == "full" else ""
-        ),
-        "OPTIONAL_PROJECT_MAP": (
-            "- Active execution plans: `docs/plans/active/`\n"
-            "- Operations and debugging: `docs/operations/index.md`\n"
-            "- Quality and debt: `docs/quality/`\n"
-            "- Generated knowledge: `docs/generated/` (do not hand-edit generated output)"
-            if args.knowledge_profile == "full" else
-            "- Optional plans, operations, quality, and generated branches are intentionally omitted; add and declare them when needed."
-        ),
-        "OPTIONAL_ROUTING_ROWS": (
-            "| Current multi-step work | [Active plans](plans/active/) |\n"
-            "| Run, debug, observe, recover | [Operations](operations/index.md) |\n"
-            "| Quality gaps and technical debt | [Quality](quality/) |\n"
-            "| Derived schemas and references | [Generated knowledge](generated/) |"
-            if args.knowledge_profile == "full" else
-            "| Optional knowledge branches | Intentionally omitted; declare them in `.ai/harness.json` when they become useful. |"
-        ),
-        "OPTIONAL_PLAN_WORKFLOW": (
-            "- For work that crosses sessions or components, create or update a plan from `docs/plans/TEMPLATE.md`."
-            if args.knowledge_profile == "full" else
-            "- For multi-session work, add and declare `docs/plans/` before creating an active plan."
-        ),
     }
 
     def is_link_like(path: Path) -> bool:
@@ -112,7 +76,7 @@ def main() -> int:
     resolved_root = root.resolve()
     operations: list[tuple[str, Path, Path | None]] = []
     blockers: list[tuple[Path, str]] = []
-    for source, relative in template_files(args.knowledge_profile):
+    for source, relative in template_files():
         target = root / relative
         if target.is_symlink():
             blockers.append((target, "target is a symlink"))
@@ -151,7 +115,6 @@ def main() -> int:
     print(f"Project: {root}")
     print(f"Mode: {mode}")
     print(f"Specification model: {spec_model}")
-    print(f"Knowledge profile: {args.knowledge_profile}")
     print("Operations:")
     for action, target, _ in operations:
         print(f"  {action:6} {target.relative_to(root).as_posix()}")

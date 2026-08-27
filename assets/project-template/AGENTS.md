@@ -16,7 +16,8 @@
 - Durable decisions: `docs/architecture/decisions/`
 - Agent roster: `docs/agents/REGISTRY.md`
 - Agent task boards: `docs/tasks/` (ownership is advisory; archive at phase end)
-{{OPTIONAL_PROJECT_MAP}}
+- Canonical repo-local skills live in `.agents/skills/`; `tools/ai/sync_skill_adapters.py` generates managed `.claude/skills/` mirrors — edit only the canonical copy
+- Operations/quality/generated knowledge branches are intentionally omitted; create and declare them when first needed
 - Canonical repo-local skills: `.agents/skills/`; generated Claude mirrors: `.claude/skills/`
 
 ## Hard constraints
@@ -30,7 +31,7 @@
 
 ## Working workflow
 
-{{OPTIONAL_PLAN_WORKFLOW}}
+- For work that crosses sessions or components, create or update a plan from `docs/plans/TEMPLATE.md` in `docs/plans/active/`.
 - At session start, mark yourself active in `docs/agents/REGISTRY.md` and set it back to idle when finishing; create your task board under `docs/tasks/` if needed.
 - Record discoveries in the closest artifact, then reconcile product intent, architecture, decisions, tests, and generated docs before completion.
 - Run targeted checks first and the required manifest commands before declaring completion.

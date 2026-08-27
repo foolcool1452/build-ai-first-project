@@ -21,8 +21,8 @@ The validator exits nonzero on errors. Use `--strict` to promote warnings for ma
 ### Structure
 
 - `.ai/harness.json` exists and the declared guidance entrypoint, architecture path, and knowledge index exist (a renamed entrypoint shifts what is checked, not a literal `AGENTS.md` name).
+- manifest structure is enforced by hand-written contract checks (`MANIFEST_CONTRACT` findings name the violated field): `schemaVersion` is the integer 1, `project` carries a valid adoption mode and persistence model, `guidance`/`knowledge`/`commands`/`validation` have the required shapes.
 - manifest paths are relative, remain inside the repository, and resolve when required.
-- schema version and supported persistence model are valid.
 - core knowledge paths (`index`, `architecture`, and `product`) exist; optional branches are checked only when declared.
 - the collaboration surfaces (`knowledge.agents` registry, `knowledge.tasks` directory) are declared and validated by default in scaffolded projects.
 
@@ -45,7 +45,7 @@ The validator exits nonzero on errors. Use `--strict` to promote warnings for ma
 - Windows drive-letter links (`C:/...`) always fail as `LINK_ESCAPE`: knowledge must travel with the repository.
 - canonical current-state files include `Status`, `Last verified`, and `Sources` metadata.
 - generated docs declare their generator or generation command.
-- verification dates older than `validation.freshnessDays` warn rather than silently becoming truth.
+- verification dates must parse as YYYY-MM-DD and stay in the past; staleness itself is a review concern, not an enforced rule.
 
 ### Plan state
 
@@ -75,14 +75,14 @@ Checked when `validation.requiredChecks` includes `agents` (the scaffolded defau
 
 ### Untrusted-input handling
 
-Manifests, schemas, and skill markers are data from possibly hostile repositories, so the validator treats them like parser fuzz:
+Manifests and skill markers are data from possibly hostile repositories, so the validator treats them like parser fuzz:
 
 - JSON is loaded with duplicate-key rejection (`MANIFEST_INVALID` names the offending key) and a 2 MB size cap; parse failures, recursion, or memory exhaustion surface as findings instead of tracebacks.
-- `harness.schema.json` keeps its fingerprint check and schema walking is depth-bounded, so neither a drifted nor an oversized schema can exhaust the stack.
+- manifest structure is enforced by hand-written total checks, so there is no schema engine to drift and no deeply nested schema to walk.
 - registered argv elements are capped at 4096 characters (`COMMAND_ARGV_LENGTH`) before any redaction pass runs.
 - Markdown report output folds control characters and newlines out of every finding, so untrusted text cannot forge headings, fake findings, or unclosed fences in `--format markdown`.
 
-The validator always loads `.ai/harness.schema.json`; `$schema` must remain `./harness.schema.json`, and the schema content must match the canonical schemaVersion 1 fingerprint. It implements the required subset without third-party packages and is not a general-purpose JSON Schema engine.
+The validator is dependency-free and implements its manifest contract directly; there is no external schema file to keep in sync. Agents reading the contract should treat `references/validation.md` and the `MANIFEST_CONTRACT` findings as the single source of truth.
 Keep `tools/ai/validate_harness.py` and `tools/ai/sync_skill_adapters.py` together; the validator imports shared skill-tree and digest helpers from the sync script.
 
 The readiness audit reports evidence and routing heuristics, not a substitute for repository-specific CI and human review. Verify detected commands before scaffolding or running them.
@@ -98,11 +98,11 @@ Exhaustive codes the universal validator can emit, grouped by check (severity):
 
 | Check | Codes |
 |---|---|
-| Manifest & structure | `MANIFEST_MISSING`/`MANIFEST_INVALID` (E); `SCHEMA_PATH`, `SCHEMA_MISSING`, `SCHEMA_INVALID`, `SCHEMA_DRIFT`, `SCHEMA_CONTRACT` (E); `UNKNOWN_CHECK` (E); `GUIDANCE_PATH`, `KNOWLEDGE_*`, `NESTED_SKILL_NOT_PORTABLE` (E) |
+| Manifest & structure | `MANIFEST_MISSING`/`MANIFEST_INVALID`/`MANIFEST_CONTRACT` (E); `UNKNOWN_CHECK` (E); `GUIDANCE_PATH`, `KNOWLEDGE_*`, `NESTED_SKILL_NOT_PORTABLE` (E) |
 | Guidance budget | `GUIDANCE_BLOAT` (E), `GUIDANCE_NEAR_BUDGET` >85% lines (W) |
 | Adapter consistency | `CLAUDE_ADAPTER_UNDECLARED` (W), `CLAUDE_IMPORT`/`CLAUDE_SYMLINK`/`CLAUDE_READ` (E), `CLAUDE_BLOAT` (W); skills: `CLAUDE_SKILL_ADAPTER`, `CLAUDE_SKILL_ORPHAN` (E) |
 | Links | `BROKEN_LINK`, `LINK_ESCAPE`, `UNDEFINED_LINK_REFERENCE` (E) |
-| Metadata | `METADATA_MISSING`, `METADATA_STATUS`, `VERIFICATION_DATE`, `FUTURE_VERIFICATION` (E); `STALE_DOCUMENT`, `PLACEHOLDER_CONTENT` (W) |
+| Metadata | `METADATA_MISSING`, `METADATA_STATUS`, `VERIFICATION_DATE`, `FUTURE_VERIFICATION` (E); `PLACEHOLDER_CONTENT` (W) |
 | Plan state | `PLAN_FIELD`, `PLAN_STATUS`, `PLAN_ID_DUPLICATE` (E); `ACTIVE_PLANS_DIR` (W) |
 | Agent coordination | `AGENT_ID_DUPLICATE`, `AGENT_FIELD`, `AGENT_STATUS`, `AGENT_DATE` (E); `AGENT_STALE`, `TASK_BOARD_UNREGISTERED`, `ARCHIVE_NAME` (W) |
 | Commands | `COMMAND_BLOCK/GROUP/SHAPE/ARGV/ARGV_LENGTH/ABSOLUTE_PATH/SECRET_ARGUMENT/CWD/CWD_TYPE/TIMEOUT/REQUIRED` (E); `COMMAND_GROUP_NEVER_RUNS`, `UNSAFE_COMMAND_GROUP` (W) |

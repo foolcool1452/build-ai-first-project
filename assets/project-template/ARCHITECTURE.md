@@ -15,6 +15,8 @@ Describe the system boundary and primary users in two or three sentences. Do not
 ## Components and dependency direction
 
 - TODO: describe current components and allowed dependency direction from code evidence.
+- Per component, record one stable identifier, path, responsibility, and public interface.
+- Record only dependency rules supported by current code or accepted decisions.
 - Unknowns must remain explicit.
 
 ## Data and external systems
@@ -24,6 +26,10 @@ Describe the system boundary and primary users in two or three sentences. Do not
 ## Runtime and observability
 
 - TODO: link startup, logs, metrics, traces, UI inspection, and failure-reproduction routes.
+
+## Change impact routes
+
+- TODO: map common change types to code, tests, schemas, generated docs, and operational checks.
 
 ## Enforced invariants
 

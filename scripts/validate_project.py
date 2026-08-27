@@ -34,8 +34,6 @@ SUPPORTED_CHECKS = {
     "structure", "guidance-budget", "adapter-consistency", "links", "metadata",
     "plan-state", "agents", "commands", "architecture",
 }
-HARNESS_SCHEMA_REFERENCE = "./harness.schema.json"
-HARNESS_SCHEMA_FINGERPRINT = "b54b9a41b7a5ccea595cf6f35d35511028e215fb9ba737229224f640b8496a75"
 COMMAND_ORDER = ("architecture", "docs", "test", "lint", "typecheck", "build")
 PLAN_HEADINGS = (
     "Goal", "Scope and non-goals", "Progress", "Decisions", "Verification",
@@ -46,7 +44,6 @@ ACTIVE_PLAN_STATUSES = {"active", "blocked", "paused"}
 AGENT_STATUSES = {"active", "idle", "retired"}
 TASK_BOARD_IGNORES = {"readme.md", "template.md"}
 MANIFEST_MAX_BYTES = 2_000_000
-MAX_SCHEMA_DEPTH = 64
 MAX_ARGV_ELEMENT_CHARS = 4096
 
 
@@ -162,65 +159,6 @@ def fenced_lines(text: str) -> set[int]:
     return set(fenced)
 
 
-def schema_violations(value: Any, schema: dict[str, Any], location: str = "$", depth: int = MAX_SCHEMA_DEPTH) -> list[str]:
-    """Validate the JSON Schema subset used by harness.schema.json."""
-    errors: list[str] = []
-    if depth <= 0:
-        return [f"{location}: manifest nesting exceeds the supported schema depth."]
-    next_depth = depth - 1
-    expected = schema.get("type")
-    type_checks = {
-        "object": lambda item: isinstance(item, dict),
-        "array": lambda item: isinstance(item, list),
-        "string": lambda item: isinstance(item, str),
-        "integer": lambda item: isinstance(item, int) and not isinstance(item, bool),
-        "boolean": lambda item: isinstance(item, bool),
-    }
-    if expected in type_checks and not type_checks[expected](value):
-        return [f"{location}: expected {expected}"]
-    if "const" in schema and value != schema["const"]:
-        errors.append(f"{location}: expected constant {schema['const']!r}")
-    if "enum" in schema and value not in schema["enum"]:
-        errors.append(f"{location}: value is not in the allowed set")
-    if isinstance(value, str) and isinstance(schema.get("minLength"), int) and len(value) < schema["minLength"]:
-        errors.append(f"{location}: string is shorter than {schema['minLength']}")
-    if isinstance(value, int) and not isinstance(value, bool):
-        if isinstance(schema.get("minimum"), int) and value < schema["minimum"]:
-            errors.append(f"{location}: value is below {schema['minimum']}")
-        if isinstance(schema.get("maximum"), int) and value > schema["maximum"]:
-            errors.append(f"{location}: value is above {schema['maximum']}")
-    if isinstance(value, list):
-        if isinstance(schema.get("minItems"), int) and len(value) < schema["minItems"]:
-            errors.append(f"{location}: array has fewer than {schema['minItems']} items")
-        item_schema = schema.get("items")
-        if isinstance(item_schema, dict):
-                for index, item in enumerate(value):
-                    errors.extend(schema_violations(item, item_schema, f"{location}[{index}]", next_depth))
-    if isinstance(value, dict):
-        required = schema.get("required", [])
-        if isinstance(required, list):
-            for key in required:
-                if key not in value:
-                    errors.append(f"{location}: missing required property {key!r}")
-        properties = schema.get("properties", {})
-        properties = properties if isinstance(properties, dict) else {}
-        for key, child_schema in properties.items():
-            if key in value and isinstance(child_schema, dict):
-                errors.extend(schema_violations(value[key], child_schema, f"{location}.{key}", next_depth))
-        additional = schema.get("additionalProperties", True)
-        for key in value.keys() - properties.keys():
-            if additional is False:
-                errors.append(f"{location}: unexpected property {key!r}")
-            elif isinstance(additional, dict):
-                errors.extend(schema_violations(value[key], additional, f"{location}.{key}", next_depth))
-    return errors
-
-
-def schema_fingerprint(schema: dict[str, Any]) -> str:
-    canonical = json.dumps(schema, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
-    return hashlib.sha256(canonical).hexdigest()
-
-
 @dataclass
 class Finding:
     severity: str
@@ -284,54 +222,43 @@ class Validator:
     def check_structure(self):
         if not self.manifest_loaded:
             return
-        if self.manifest.get("$schema") != HARNESS_SCHEMA_REFERENCE:
-            self.add(
-                "error", "SCHEMA_PATH",
-                f"$schema must be {HARNESS_SCHEMA_REFERENCE!r}; custom schema locations are not supported.",
-                ".ai/harness.json",
-            )
-        schema_path = self.root / ".ai/harness.schema.json"
-        if not schema_path.exists():
-            self.add("error", "SCHEMA_MISSING", "Missing fixed harness schema: .ai/harness.schema.json.", schema_path)
+        manifest_path = ".ai/harness.json"
+        schema_version = self.manifest.get("schemaVersion")
+        if schema_version != 1 or isinstance(schema_version, bool):
+            self.add("error", "MANIFEST_CONTRACT", "schemaVersion must be the integer 1.", manifest_path)
+        project = self.manifest.get("project")
+        if not isinstance(project, dict):
+            self.add("error", "MANIFEST_CONTRACT", "project must be an object with name, adoptionMode, and specPersistence.", manifest_path)
         else:
-            try:
-                schema = load_json_strict(schema_path, "harness.schema.json")
-                if schema.get("type") != "object":
-                    self.add("error", "SCHEMA_INVALID", "Harness schema must be a JSON object schema.", schema_path)
-                else:
-                    if schema_fingerprint(schema) != HARNESS_SCHEMA_FINGERPRINT:
-                        self.add(
-                            "error", "SCHEMA_DRIFT",
-                            "harness.schema.json differs from the fixed schemaVersion 1 contract.",
-                            schema_path,
-                        )
-                    for violation in schema_violations(self.manifest, schema):
-                        self.add("error", "SCHEMA_CONTRACT", violation, ".ai/harness.json")
-            except (OSError, UnicodeError, ValueError, RecursionError, MemoryError) as exc:
-                self.add("error", "SCHEMA_INVALID", f"Cannot parse harness schema: {exc}", schema_path)
-        validation = self.manifest.get("validation")
-        if isinstance(validation, dict):
-            checks = validation.get("requiredChecks")
-        else:
-            checks = None
-        if isinstance(checks, list) and all(isinstance(check, str) for check in checks):
-            unknown = sorted(set(checks) - SUPPORTED_CHECKS)
-            if unknown:
-                self.add("error", "UNKNOWN_CHECK", f"Unknown required checks: {', '.join(unknown)}", ".ai/harness.json")
-        validation = self.manifest.get("validation")
-        if isinstance(validation, dict):
-            checks = validation.get("requiredChecks")
-        else:
-            checks = None
-        if isinstance(checks, list) and all(isinstance(check, str) for check in checks):
-            unknown = sorted(set(checks) - SUPPORTED_CHECKS)
-            if unknown:
-                self.add("error", "UNKNOWN_CHECK", f"Unknown required checks: {', '.join(unknown)}", ".ai/harness.json")
+            if not isinstance(project.get("name"), str) or not project.get("name", "").strip():
+                self.add("error", "MANIFEST_CONTRACT", "project.name must be a non-empty string.", manifest_path)
+            if project.get("adoptionMode") not in ("greenfield", "brownfield"):
+                self.add("error", "MANIFEST_CONTRACT", "project.adoptionMode must be 'greenfield' or 'brownfield'.", manifest_path)
+            if project.get("specPersistence") not in ("living", "flow-forward", "flow-back"):
+                self.add("error", "MANIFEST_CONTRACT", "project.specPersistence must be 'living', 'flow-forward', or 'flow-back'.", manifest_path)
         guidance = self.manifest.get("guidance")
+        if not isinstance(guidance, dict) or not isinstance(guidance.get("entrypoint"), str) or not guidance.get("entrypoint", "").strip():
+            self.add("error", "MANIFEST_CONTRACT", "guidance.entrypoint must be a non-empty string.", manifest_path)
+        knowledge = self.manifest.get("knowledge")
+        if not isinstance(knowledge, dict):
+            self.add("error", "MANIFEST_CONTRACT", "knowledge must be an object with index, architecture, and product paths.", manifest_path)
+            knowledge = None
+        else:
+            for key in ("index", "architecture", "product"):
+                value = knowledge.get(key)
+                if not isinstance(value, str) or not value.strip():
+                    self.add("error", "MANIFEST_CONTRACT", f"knowledge.{key} must be a non-empty repository-relative path.", manifest_path)
+        if not isinstance(self.manifest.get("commands"), dict):
+            self.add("error", "MANIFEST_CONTRACT", "commands must be an object of command groups.", manifest_path)
+        validation = self.manifest.get("validation")
+        checks = validation.get("requiredChecks") if isinstance(validation, dict) else None
+        if not isinstance(checks, list) or not all(isinstance(check, str) for check in checks):
+            self.add("error", "MANIFEST_CONTRACT", "validation.requiredChecks must be an array of check names.", manifest_path)
+        elif unknown := sorted(set(checks) - SUPPORTED_CHECKS):
+            self.add("error", "UNKNOWN_CHECK", f"Unknown required checks: {', '.join(unknown)}", manifest_path)
         if isinstance(guidance, dict):
             self.repo_path(guidance.get("entrypoint"), "GUIDANCE_PATH")
-        knowledge = self.manifest.get("knowledge")
-        if isinstance(knowledge, dict):
+        if knowledge is not None:
             for key in ("index", "architecture", "product"):
                 self.repo_path(knowledge.get(key), f"KNOWLEDGE_{key.upper()}")
             for key in ("plans", "operations", "quality", "generated", "agents", "tasks"):
@@ -547,10 +474,6 @@ class Validator:
         return sorted(result)
 
     def check_metadata(self):
-        validation = self.manifest.get("validation")
-        freshness = validation.get("freshnessDays", 90) if isinstance(validation, dict) else 90
-        if not isinstance(freshness, int) or freshness < 1:
-            freshness = 90
         placeholders: list[Path] = []
         for path in self.canonical_markdown_paths():
             text = read_text_sig(path)
@@ -569,12 +492,8 @@ class Validator:
                     self.add("error", "VERIFICATION_DATE", "Last verified must use YYYY-MM-DD.", path)
                     continue
                 try:
-                    verified = datetime.strptime(raw_date, "%Y-%m-%d").date()
-                    age = (date.today() - verified).days
-                    if age < 0:
+                    if datetime.strptime(raw_date, "%Y-%m-%d").date() > date.today():
                         self.add("error", "FUTURE_VERIFICATION", "Last verified date is in the future.", path)
-                    elif age > freshness:
-                        self.add("warning", "STALE_DOCUMENT", f"Canonical document was last verified {age} days ago.", path)
                 except ValueError:
                     self.add("error", "VERIFICATION_DATE", "Last verified must use YYYY-MM-DD.", path)
         if placeholders:
