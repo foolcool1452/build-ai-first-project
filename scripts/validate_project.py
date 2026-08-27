@@ -775,9 +775,23 @@ class Validator:
         commands = self.normalized_commands()
         if self.strict and not any(item.get("required") for items in commands.values() for item in items):
             self.add("error", "REQUIRED_COMMANDS", "Strict validation requires at least one registered required command.", ".ai/harness.json")
-        for forbidden in ("deploy", "release", "migrate", "production"):
-            if forbidden in commands and commands[forbidden]:
-                self.add("warning", "UNSAFE_COMMAND_GROUP", f"'{forbidden}' commands are recorded but will never run through the universal validator.", ".ai/harness.json")
+        for group, items in sorted(commands.items()):
+            if not items:
+                continue
+            if group in ("deploy", "release", "migrate", "production"):
+                self.add(
+                    "warning", "UNSAFE_COMMAND_GROUP",
+                    f"'{group}' commands are recorded but will never run through the universal validator.",
+                    ".ai/harness.json",
+                )
+            elif group != "setup" and group not in COMMAND_ORDER:
+                self.add(
+                    "warning", "COMMAND_GROUP_NEVER_RUNS",
+                    f"Command group '{group}' is registered but the universal validator only runs "
+                    f"{', '.join(COMMAND_ORDER)} ('setup' is the reserved manual bootstrap group); "
+                    f"document how '{group}' executes or fold it into a runnable group.",
+                    ".ai/harness.json",
+                )
         return commands
 
     def check_architecture(self, commands: dict[str, list[dict[str, Any]]]):

@@ -238,7 +238,10 @@ def discover_commands(root: Path) -> dict[str, list[dict[str, Any]]]:
 
     makefile = root / "Makefile"
     if makefile.exists():
-        text = makefile.read_text(encoding="utf-8", errors="replace")
+        try:
+            text = makefile.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            text = ""
         targets = set(re.findall(r"(?m)^([A-Za-z0-9_.-]+)\s*:(?![=])", text))
         for group, names in {
             "test": ["test"], "lint": ["lint", "check"], "typecheck": ["typecheck"],

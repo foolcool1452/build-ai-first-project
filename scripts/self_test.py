@@ -246,6 +246,17 @@ def main() -> int:
         run(VALIDATE, str(brown))
         write_json(manifest_path, json.loads((green / ".ai/harness.json").read_text(encoding="utf-8")))
 
+        grouped = json.loads((green / ".ai/harness.json").read_text(encoding="utf-8"))
+        grouped["commands"] = {
+            "format": [{"argv": ["node", "--version"]}],
+            "deploy": [{"argv": ["echo", "deploying"]}],
+        }
+        write_json(manifest_path, grouped)
+        groups_report = run(VALIDATE, str(brown))
+        assert "COMMAND_GROUP_NEVER_RUNS" in groups_report.stdout
+        assert "UNSAFE_COMMAND_GROUP" in groups_report.stdout
+        write_json(manifest_path, json.loads((green / ".ai/harness.json").read_text(encoding="utf-8")))
+
         bad_cwd = json.loads(manifest_path.read_text(encoding="utf-8"))
         bad_cwd["commands"] = {
             "test": [{"argv": ["python", "-c", "pass"], "cwd": "AGENTS.md", "required": True}]

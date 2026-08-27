@@ -70,7 +70,8 @@ Checked when `validation.requiredChecks` includes `agents` (the scaffolded defau
 - sensitive values are not command arguments; use environment or credential-provider configuration;
 - working directories stay within the repository (`.` by default);
 - timeouts are positive and bounded (900 seconds by default);
-- strict validation requires at least one command marked `required: true`, even if the configured check list omits command execution.
+- strict validation requires at least one command marked `required: true`, even if the configured check list omits command execution;
+- every populated command group outside the runnable order (`architecture`, `docs`, `test`, `lint`, `typecheck`, `build`) warns (`COMMAND_GROUP_NEVER_RUNS`); `deploy`/`release`/`migrate`/`production` additionally warn as `UNSAFE_COMMAND_GROUP`. The reserved `setup` group is exempt: it records the manual bootstrap route and is intentionally never executed by validation.
 
 The validator always loads `.ai/harness.schema.json`; `$schema` must remain `./harness.schema.json`, and the schema content must match the canonical schemaVersion 1 fingerprint. It implements the required subset without third-party packages and is not a general-purpose JSON Schema engine.
 Keep `tools/ai/validate_harness.py` and `tools/ai/sync_skill_adapters.py` together; the validator imports shared skill-tree and digest helpers from the sync script.

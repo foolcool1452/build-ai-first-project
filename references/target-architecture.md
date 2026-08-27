@@ -54,6 +54,7 @@ repo/
 |   |   `-- completed/              # retained only when history is useful
 |   |-- operations/
 |   |   `-- index.md                # run, debug, deploy, observe, recover
+|   |-- workflows/                  # optional repeatable procedures; scope only where a repo-local skill would not fit
 |   |-- quality/
 |   |   `-- QUALITY.md              # evidenced gaps and bounded technical debt
 |   `-- generated/
