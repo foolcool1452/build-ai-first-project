@@ -44,7 +44,7 @@ repo/
 |   |   `-- REGISTRY.md             # roster: who joined, status, focus, board link
 |   |-- tasks/
 |   |   |-- <agent-id>.md           # per-agent todo boards; ownership advisory
-|   |   `-- archive/                # phase-end grooming output
+|   |   `-- archive/                # grooming output; created on first use
 |   |-- architecture/
 |   |   |-- index.md                # detailed current architecture
 |   |   `-- decisions/              # durable rationale, one decision per file
@@ -130,7 +130,7 @@ The validator enforces structure (unique ids, status vocabulary, date formats), 
 
 ### Generated documentation
 
-Generated files must state their generator and source inputs. Validation should fail when checked-in generated output differs from regeneration, when practical.
+Generated files must state their generator and source inputs; keeping them reproducible is a project-native convention this skill documents but does not mechanically enforce.
 
 ## Manifest contract
 

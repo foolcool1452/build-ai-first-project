@@ -88,7 +88,7 @@ def main() -> int:
         assert '\n    "setup": []' in (green / ".ai/harness.json").read_text(encoding="utf-8")
         for tracked in (
             "docs/plans/active/README.md", "docs/plans/completed/README.md",
-            ".agents/skills/README.md", ".claude/skills/README.md",
+            ".agents/skills/README.md",
             "tools/ai/sync_skill_adapters.py", "tools/ai/validate_harness.py",
         ):
             assert (green / tracked).is_file(), tracked
@@ -184,11 +184,6 @@ def main() -> int:
         write_json(manifest_path, malformed)
         malformed_report = run(VALIDATE, str(brown), expected=1)
         assert "SCHEMA_CONTRACT" in malformed_report.stdout and "Traceback" not in malformed_report.stderr
-        malformed = json.loads((green / ".ai/harness.json").read_text(encoding="utf-8"))
-        malformed["architecture"]["zones"] = [{"id": "app", "paths": ["docs/**"], "mayDependOn": None}]
-        write_json(manifest_path, malformed)
-        dependency_report = run(VALIDATE, str(brown), expected=1)
-        assert "ARCH_DEP_LIST" in dependency_report.stdout and "Traceback" not in dependency_report.stderr
         baseline_manifest = json.loads((green / ".ai/harness.json").read_text(encoding="utf-8"))
         for block in ("project", "guidance", "knowledge", "commands", "validation", "architecture"):
             for malformed_value in (None, "oops", []):
@@ -197,12 +192,12 @@ def main() -> int:
                 write_json(manifest_path, malformed_shape)
                 shape_report = run(VALIDATE, str(brown), expected=1)
                 assert "Traceback" not in shape_report.stderr, (block, malformed_value)
+        # Strict mode only promotes warnings now; there is no required-command rule.
         strict_manifest = json.loads((green / ".ai/harness.json").read_text(encoding="utf-8"))
         strict_manifest["commands"] = {}
         strict_manifest["validation"]["requiredChecks"] = ["structure"]
         write_json(manifest_path, strict_manifest)
-        strict_report = run(VALIDATE, str(brown), "--strict", expected=1)
-        assert "REQUIRED_COMMANDS" in strict_report.stdout
+        run(VALIDATE, str(brown), "--strict")
         write_json(manifest_path, json.loads((green / ".ai/harness.json").read_text(encoding="utf-8")))
 
         schema_path = brown / ".ai/harness.schema.json"
@@ -244,6 +239,10 @@ def main() -> int:
         minimal_command["commands"] = {"test": [{"argv": ["python", "-c", "pass"]}]}
         write_json(manifest_path, minimal_command)
         run(VALIDATE, str(brown))
+        minimal_json_report = run(VALIDATE, str(brown), "--run-commands", "--format", "json")
+        assert '"exitCode"' in minimal_json_report.stdout
+        for leaked in ("stdoutTail", "stderrTail", "stdoutCharacters"):
+            assert leaked not in minimal_json_report.stdout
         write_json(manifest_path, json.loads((green / ".ai/harness.json").read_text(encoding="utf-8")))
 
         grouped = json.loads((green / ".ai/harness.json").read_text(encoding="utf-8"))
@@ -423,29 +422,19 @@ def main() -> int:
             handle.write("\n[spaced](<space file.md>)\n[spaced-ref][spaced-doc]\n[spaced-doc]: <space file.md>\n")
         run(VALIDATE, str(brown))
 
-        secret_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        # Secrets never belong in argv: rejected before anything runs.
+        pre_secret_manifest = manifest_path.read_text(encoding="utf-8")
+        secret_manifest = json.loads(pre_secret_manifest)
         secret_manifest["commands"] = {
             "test": [{
-                "argv": ["python", "-c", (
-                    "import os,sys;"
-                    "os.write(1,b'GITHUB_TOKEN=github-secret\\xff\\nMY_API_KEY=api-secret\\n');"
-                    "sys.stderr.write('{\\\"token\\\": \\\"json-secret\\\"} AWS_SECRET_ACCESS_KEY=aws-secret')"
-                )],
+                "argv": ["python", "-c", "pass", "--api-key=do-not-print"],
                 "cwd": ".", "required": False, "timeoutSeconds": 30,
             }]
         }
         write_json(manifest_path, secret_manifest)
-        safe_report = run(VALIDATE, str(brown), "--run-commands", "--format", "json")
-        for secret in ("github-secret", "api-secret", "json-secret", "aws-secret"):
-            assert secret not in safe_report.stdout
-        assert "stdoutTail" not in safe_report.stdout
-        detailed_report = run(
-            VALIDATE, str(brown), "--run-commands", "--include-command-output", "--format", "json"
-        )
-        for secret in ("github-secret", "api-secret", "json-secret", "aws-secret"):
-            assert secret not in detailed_report.stdout
-        assert "[REDACTED]" in detailed_report.stdout
-        assert "stdoutTail" in detailed_report.stdout
+        rejected = run(VALIDATE, str(brown), expected=1)
+        assert "COMMAND_SECRET_ARGUMENT" in rejected.stdout
+        write_json(manifest_path, json.loads(pre_secret_manifest))
 
         portable = brown / ".agents/skills/example"
         portable.mkdir(parents=True)
@@ -493,7 +482,7 @@ def main() -> int:
         )
         outside_claude = base / "outside-claude"
         outside_claude.mkdir()
-        shutil.rmtree(guarded / ".claude")
+        shutil.rmtree(guarded / ".claude", ignore_errors=True)
         link_created = create_directory_link(guarded / ".claude", outside_claude)
         if os.name == "nt":
             assert link_created, "Windows junction creation should be available for the destination guard test"
@@ -571,7 +560,9 @@ def main() -> int:
         ghost_report = run(VALIDATE, str(brown))
         assert "TASK_BOARD_UNREGISTERED" in ghost_report.stdout
         (tasks_dir / "ghost.md").unlink()
-        archive_note = tasks_dir / "archive" / "atlas-notes.md"
+        archive_dir = tasks_dir / "archive"
+        archive_dir.mkdir(parents=True, exist_ok=True)
+        archive_note = archive_dir / "atlas-notes.md"
         archive_note.write_text("historical items\n", encoding="utf-8", newline="\n")
         archive_report = run(VALIDATE, str(brown))
         assert "ARCHIVE_NAME" in archive_report.stdout

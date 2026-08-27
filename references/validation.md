@@ -71,7 +71,6 @@ Checked when `validation.requiredChecks` includes `agents` (the scaffolded defau
 - sensitive values are not command arguments; use environment or credential-provider configuration;
 - working directories stay within the repository (`.` by default);
 - timeouts are positive and bounded (900 seconds by default);
-- strict validation requires at least one command marked `required: true`, even if the configured check list omits command execution;
 - every populated command group outside the runnable order (`architecture`, `docs`, `test`, `lint`, `typecheck`, `build`) warns (`COMMAND_GROUP_NEVER_RUNS`); `deploy`/`release`/`migrate`/`production` additionally warn as `UNSAFE_COMMAND_GROUP`. The reserved `setup` group is exempt: it records the manual bootstrap route and is intentionally never executed by validation.
 
 ### Untrusted-input handling
@@ -90,9 +89,8 @@ The readiness audit reports evidence and routing heuristics, not a substitute fo
 
 ### Architecture
 
-- declared zones have unique identifiers and valid paths;
-- dependency targets reference known zones;
-- if architecture is declared enforced, an architecture command must exist and pass.
+- `architecture.enforced: true` requires a registered runnable `architecture` command; otherwise the harness is flagged as observational;
+- zone graphs and dependency rules belong to project-native linters (ArchUnit, import-linter, dependency-cruiser); the universal validator intentionally does not re-implement them.
 
 ### Finding-code inventory
 
@@ -101,15 +99,15 @@ Exhaustive codes the universal validator can emit, grouped by check (severity):
 | Check | Codes |
 |---|---|
 | Manifest & structure | `MANIFEST_MISSING`/`MANIFEST_INVALID` (E); `SCHEMA_PATH`, `SCHEMA_MISSING`, `SCHEMA_INVALID`, `SCHEMA_DRIFT`, `SCHEMA_CONTRACT` (E); `UNKNOWN_CHECK` (E); `GUIDANCE_PATH`, `KNOWLEDGE_*`, `NESTED_SKILL_NOT_PORTABLE` (E) |
-| Guidance budget | `GUIDANCE_BLOAT` (E), `GUIDANCE_NEAR_BUDGET` >85% lines (W), `LINT_LEAKAGE` (W) |
+| Guidance budget | `GUIDANCE_BLOAT` (E), `GUIDANCE_NEAR_BUDGET` >85% lines (W) |
 | Adapter consistency | `CLAUDE_ADAPTER_UNDECLARED` (W), `CLAUDE_IMPORT`/`CLAUDE_SYMLINK`/`CLAUDE_READ` (E), `CLAUDE_BLOAT` (W); skills: `CLAUDE_SKILL_ADAPTER`, `CLAUDE_SKILL_ORPHAN` (E) |
 | Links | `BROKEN_LINK`, `LINK_ESCAPE`, `UNDEFINED_LINK_REFERENCE` (E) |
-| Metadata | `METADATA_MISSING`, `METADATA_STATUS`, `VERIFICATION_DATE`, `FUTURE_VERIFICATION` (E); `STALE_DOCUMENT`, `PLACEHOLDER_CONTENT`, `GENERATOR_PLACEHOLDER` (W); `GENERATOR_MISSING` (E) |
+| Metadata | `METADATA_MISSING`, `METADATA_STATUS`, `VERIFICATION_DATE`, `FUTURE_VERIFICATION` (E); `STALE_DOCUMENT`, `PLACEHOLDER_CONTENT` (W) |
 | Plan state | `PLAN_FIELD`, `PLAN_STATUS`, `PLAN_ID_DUPLICATE` (E); `ACTIVE_PLANS_DIR` (W) |
 | Agent coordination | `AGENT_ID_DUPLICATE`, `AGENT_FIELD`, `AGENT_STATUS`, `AGENT_DATE` (E); `AGENT_STALE`, `TASK_BOARD_UNREGISTERED`, `ARCHIVE_NAME` (W) |
-| Commands | `COMMAND_BLOCK/GROUP/SHAPE/ARGV/ARGV_LENGTH/ABSOLUTE_PATH/SECRET_ARGUMENT/CWD/CWD_TYPE/TIMEOUT/REQUIRED` (E); `REQUIRED_COMMANDS` (E, strict only); `COMMAND_GROUP_NEVER_RUNS`, `UNSAFE_COMMAND_GROUP` (W) |
-| Architecture | `ARCH_BLOCK/ZONES/ZONE/ZONE_DUPLICATE/ZONE_PATHS/ZONE_PATTERN/DEP_LIST/UNKNOWN_DEP/NOT_ENFORCED` (E); `ARCH_ZONE_EMPTY`, `ARCH_OBSERVATIONAL` (W) |
-| Command execution (`--run-commands`) | `COMMAND_FAILED`, `COMMAND_TIMEOUT`, `COMMAND_EXECUTION` (severity follows each command's `required` flag); `COMMAND_MISSING` as listed |
+| Commands | `COMMAND_BLOCK/GROUP/SHAPE/ARGV/ARGV_LENGTH/ABSOLUTE_PATH/SECRET_ARGUMENT/CWD/CWD_TYPE/TIMEOUT/REQUIRED` (E); `COMMAND_GROUP_NEVER_RUNS`, `UNSAFE_COMMAND_GROUP` (W) |
+| Architecture | `ARCH_BLOCK`, `ARCH_NOT_ENFORCED` (E); `ARCH_OBSERVATIONAL` (W). Zone-graph validation is deliberately left to project-native linters |
+| Command execution (`--run-commands`) | records exit code and duration only — command output is discarded, not captured; failures surface as `COMMAND_FAILED`, `COMMAND_MISSING`, `COMMAND_TIMEOUT`, or `COMMAND_EXECUTION` with severity following each command's `required` flag |
 
 (E)=error, (W)=warning. Audit findings live in `scripts/audit_project.py` and are reported read-only; they never block.
 
@@ -125,7 +123,7 @@ Recommended order:
 4. broader tests;
 5. build.
 
-Capture exit code, duration, and output sizes by default. Add `--include-command-output` only for local diagnosis; bounded tails are then redacted before reporting. Redaction is defense in depth, so do not commit diagnostic output or put secrets in command arguments.
+Capture exit code and duration only; command output is discarded rather than captured, so there is nothing to redact or leak in reports. Redaction still applies to echoed argv. Never register commands whose safety depends on nobody reading their output, and never put secrets in command arguments — those are rejected outright (`COMMAND_SECRET_ARGUMENT`).
 
 ## Severity and adoption
 

@@ -230,10 +230,9 @@ class Finding:
 
 
 class Validator:
-    def __init__(self, root: Path, strict: bool = False, include_command_output: bool = False):
+    def __init__(self, root: Path, strict: bool = False):
         self.root = root.resolve()
         self.strict = strict
-        self.include_command_output = include_command_output
         self.findings: list[Finding] = []
         self.manifest: dict[str, Any] = {}
         self.manifest_loaded = False
@@ -365,14 +364,6 @@ class Validator:
             self.add("error", "GUIDANCE_BLOAT", f"Guidance has {lines} lines; declared maximum is {max_lines}.", path)
         elif lines > int(max_lines * 0.85):
             self.add("warning", "GUIDANCE_NEAR_BUDGET", f"Guidance uses {lines}/{max_lines} lines.", path)
-        formatter_config = any((self.root / name).exists() for name in (
-            ".prettierrc", ".prettierrc.json", ".editorconfig", "ruff.toml", ".ruff.toml",
-            "biome.json", "eslint.config.js", "eslint.config.mjs",
-        ))
-        if formatter_config:
-            leakage = re.findall(r"(?im)^.*\b(indentation|indent|semicolon|single quotes?|double quotes?|line length)\b.*$", text)
-            if leakage:
-                self.add("warning", "LINT_LEAKAGE", "Guidance may restate formatter rules; keep only non-obvious invocation or exception details.", path)
 
     def check_adapter(self):
         guidance = self.manifest.get("guidance", {})
@@ -593,24 +584,9 @@ class Validator:
                 "warning", "PLACEHOLDER_CONTENT",
                 f"{len(placeholders)} canonical document(s) still contain TODO placeholders: {names}{suffix}.",
             )
-        knowledge = self.manifest.get("knowledge")
-        generated_value = knowledge.get("generated") if isinstance(knowledge, dict) else None
-        generated = self.repo_path(generated_value, "GENERATED_PATH", required=False) if generated_value else None
-        if generated and generated.exists():
-            paths = generated.rglob("*.md") if generated.is_dir() else [generated]
-            generator_placeholders: list[Path] = []
-            for path in paths:
-                text = read_text_sig(path)
-                generator = re.search(r"(?mi)^Generator:\s*(\S.*?)\s*$", text)
-                if not generator:
-                    self.add("error", "GENERATOR_MISSING", "Generated documentation must declare 'Generator:'.", path)
-                elif re.search(r"(?i)\b(TODO|register|not configured|unknown)\b", generator.group(1)):
-                    generator_placeholders.append(path)
-            if generator_placeholders:
-                self.add(
-                    "warning", "GENERATOR_PLACEHOLDER",
-                    f"{len(generator_placeholders)} generated document(s) have no concrete regeneration command yet.",
-                )
+        # Generated-document branches stay link- and metadata-checked via the
+        # generic canonical scan above; their generator declarations are a
+        # project-native convention, not something this validator enforces.
 
     def check_plans(self):
         knowledge = self.manifest.get("knowledge", {})
@@ -845,8 +821,6 @@ class Validator:
 
     def check_commands(self) -> dict[str, list[dict[str, Any]]]:
         commands = self.normalized_commands()
-        if self.strict and not any(item.get("required") for items in commands.values() for item in items):
-            self.add("error", "REQUIRED_COMMANDS", "Strict validation requires at least one registered required command.", ".ai/harness.json")
         for group, items in sorted(commands.items()):
             if not items:
                 continue
@@ -867,42 +841,13 @@ class Validator:
         return commands
 
     def check_architecture(self, commands: dict[str, list[dict[str, Any]]]):
+        # Zone graphs belong to project-native linters (ArchUnit, import-linter,
+        # dependency-cruiser). The universal validator only enforces the glue:
+        # declaring enforcement requires a runnable architecture command.
         block = self.manifest.get("architecture", {})
         if not isinstance(block, dict):
             self.add("error", "ARCH_BLOCK", "architecture must be an object.", ".ai/harness.json")
             return
-        zones = block.get("zones", [])
-        if not isinstance(zones, list):
-            self.add("error", "ARCH_ZONES", "architecture.zones must be an array.", ".ai/harness.json")
-            return
-        ids: set[str] = set()
-        for index, zone in enumerate(zones):
-            if not isinstance(zone, dict) or not isinstance(zone.get("id"), str) or not zone.get("id", "").strip():
-                self.add("error", "ARCH_ZONE", f"architecture.zones[{index}] needs a non-empty string id.", ".ai/harness.json")
-                continue
-            zone_id = zone["id"]
-            if zone_id in ids:
-                self.add("error", "ARCH_ZONE_DUPLICATE", f"Duplicate architecture zone id: {zone_id}", ".ai/harness.json")
-            ids.add(zone_id)
-            paths = zone.get("paths", [])
-            if not isinstance(paths, list) or not paths:
-                self.add("error", "ARCH_ZONE_PATHS", f"Architecture zone '{zone_id}' has no paths.", ".ai/harness.json")
-            else:
-                for pattern in paths:
-                    if not isinstance(pattern, str) or is_absolute_argument(pattern) or ".." in Path(pattern).parts:
-                        self.add("error", "ARCH_ZONE_PATTERN", f"Invalid path pattern in zone '{zone_id}': {pattern}", ".ai/harness.json")
-                    elif not any(self.root.glob(pattern)):
-                        self.add("warning", "ARCH_ZONE_EMPTY", f"Zone '{zone_id}' pattern matches no files: {pattern}", ".ai/harness.json")
-        for zone in zones:
-            if not isinstance(zone, dict):
-                continue
-            dependencies = zone.get("mayDependOn", [])
-            if "mayDependOn" not in zone or not isinstance(dependencies, list) or not all(isinstance(item, str) for item in dependencies):
-                self.add("error", "ARCH_DEP_LIST", f"Zone '{zone.get('id')}' mayDependOn must be a string array.", ".ai/harness.json")
-                continue
-            for dependency in dependencies:
-                if dependency not in ids:
-                    self.add("error", "ARCH_UNKNOWN_DEP", f"Zone '{zone.get('id')}' references unknown zone '{dependency}'.", ".ai/harness.json")
         if block.get("enforced") is True and not commands.get("architecture"):
             self.add("error", "ARCH_NOT_ENFORCED", "architecture.enforced is true but no architecture command is registered.", ".ai/harness.json")
         elif block.get("enforced") is not True:
@@ -930,21 +875,15 @@ class Validator:
                         argv,
                         cwd=cwd,
                         check=False,
-                        capture_output=True,
-                        text=False,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
                         timeout=item["timeoutSeconds"],
                     )
                     duration = round(time.monotonic() - start, 3)
-                    stdout = (result.stdout or b"").decode("utf-8", errors="replace")
-                    stderr = (result.stderr or b"").decode("utf-8", errors="replace")
                     record = {
                         "group": group, "argv": safe_argv, "cwd": str(cwd.relative_to(self.root)),
                         "exitCode": result.returncode, "durationSeconds": duration,
-                        "stdoutCharacters": len(stdout), "stderrCharacters": len(stderr),
                     }
-                    if self.include_command_output:
-                        record["stdoutTail"] = redact_text(stdout[-4000:])
-                        record["stderrTail"] = redact_text(stderr[-4000:])
                     self.command_results.append(record)
                     if result.returncode != 0:
                         severity = "error" if item.get("required", False) else "warning"
@@ -1045,11 +984,7 @@ def main() -> int:
     parser.add_argument("--strict", action="store_true", help="Promote warnings to errors")
     parser.add_argument(
         "--run-commands", action="store_true",
-        help="Run reviewed registered verification groups without a shell; repository commands are trusted code",
-    )
-    parser.add_argument(
-        "--include-command-output", action="store_true",
-        help="Include redacted bounded command output in the report; omitted by default",
+        help="Run reviewed registered verification groups without a shell; repository commands are trusted code and their output is discarded",
     )
     parser.add_argument("--format", choices=("markdown", "json"), default="markdown")
     parser.add_argument("--output", help="Optional report path; stdout is the default")
@@ -1058,11 +993,9 @@ def main() -> int:
     root = Path(args.repo).resolve()
     if not root.is_dir():
         parser.error(f"not a directory: {root}")
-    if args.include_command_output and not args.run_commands:
-        parser.error("--include-command-output requires --run-commands")
     if args.force_output and not args.output:
         parser.error("--force-output requires --output")
-    validator = Validator(root, strict=args.strict, include_command_output=args.include_command_output)
+    validator = Validator(root, strict=args.strict)
     validator.validate(run_commands=args.run_commands)
     report = validator.report()
     content = json.dumps(report, indent=2, ensure_ascii=False) + "\n" if args.format == "json" else report_markdown(report)

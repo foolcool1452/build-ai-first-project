@@ -33,6 +33,7 @@ Last updated: YYYY-MM-DD
 ## Phase-end grooming
 
 When a phase or milestone completes, archive each board's finished items to
-`archive/<YYYY-MM-DD>-<agent-id>.md` (one file per agent per grooming run).
-Deleting completed items outright is allowed for teams that prefer no history.
-Then update `Last active` and trim `Done this phase` to empty on every board.
+`archive/<YYYY-MM-DD>-<agent-id>.md` (one file per agent per grooming run;
+create the `archive/` directory on first use). Deleting completed items
+outright is allowed for teams that prefer no history. Then update `Last
+active` and trim `Done this phase` to empty on every board.
