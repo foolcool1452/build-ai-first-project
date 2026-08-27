@@ -43,11 +43,19 @@ Copy this directory into your agent's skills location:
 
 Requires Python 3.11+ for the bundled scripts. No third-party dependencies.
 
+> **Windows note:** a bare `python` may resolve to the Microsoft Store alias, which can hang headless sessions. Prefer `py -3` or the full interpreter path.
+
 ## Quick start
 
 ```bash
 # Read-only audit of an existing repository
 python scripts/audit_project.py path/to/repo
+
+# Machine-readable output, saved to a new file
+python scripts/audit_project.py path/to/repo --format json --output report.json
+
+# Expand a component path to its whole Git repository for the census
+python scripts/audit_project.py packages/api --scope repository --format json
 
 # Preview, then apply, harness scaffolding for a new project
 python scripts/scaffold_project.py path/to/repo --mode greenfield

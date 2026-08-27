@@ -257,6 +257,83 @@ def main() -> int:
         assert "UNSAFE_COMMAND_GROUP" in groups_report.stdout
         write_json(manifest_path, json.loads((green / ".ai/harness.json").read_text(encoding="utf-8")))
 
+        (brown / ".ai/harness.json").write_text("{}\n", encoding="utf-8", newline="\n")
+        empty_manifest = run(VALIDATE, str(brown), expected=1)
+        assert "SCHEMA_CONTRACT" in empty_manifest.stdout
+        write_json(manifest_path, json.loads((green / ".ai/harness.json").read_text(encoding="utf-8")))
+
+        (brown / ".ai/harness.json").write_text(
+            '{"schemaVersion":1,"schemaVersion":2}\n', encoding="utf-8", newline="\n"
+        )
+        duplicate_keys = run(VALIDATE, str(brown), expected=1)
+        assert "MANIFEST_INVALID" in duplicate_keys.stdout and "duplicate key" in duplicate_keys.stdout
+        write_json(manifest_path, json.loads((green / ".ai/harness.json").read_text(encoding="utf-8")))
+
+        deep_value = '{"commands":' + '{"nested":' * 400 + "1" + "}" * 400 + "}"
+        (brown / ".ai/harness.json").write_text(deep_value + "\n", encoding="utf-8", newline="\n")
+        deep_report = run(VALIDATE, str(brown), expected=1)
+        assert "Traceback" not in deep_report.stderr
+        write_json(manifest_path, json.loads((green / ".ai/harness.json").read_text(encoding="utf-8")))
+
+        # The depth guard itself lives under the schema walker; exercise it directly
+        # because the published schema's typed nodes short-circuit long chains.
+        sys.path.insert(0, str(SCRIPTS))
+        try:
+            from validate_project import MAX_SCHEMA_DEPTH
+            from validate_project import schema_violations as _sv
+
+            deep_manifest: dict = {"leaf": True}
+            for _ in range(MAX_SCHEMA_DEPTH * 4):
+                deep_manifest = {"child": deep_manifest}
+            permissive_chain: dict = {"type": "string"}
+            for _ in range(MAX_SCHEMA_DEPTH * 4):
+                permissive_chain = {
+                    "type": "object",
+                    "additionalProperties": permissive_chain,
+                }
+            depth_errors = _sv(deep_manifest, permissive_chain)
+            assert any("supported schema depth" in item for item in depth_errors)
+        finally:
+            sys.path.remove(str(SCRIPTS))
+
+        hidden_plan_dir = brown / "docs/plans/active/wip"
+        hidden_plan_dir.mkdir(parents=True)
+        (hidden_plan_dir / "nested.md").write_text(
+            "Status: banana\nNo headings here.\n", encoding="utf-8", newline="\n"
+        )
+        hidden_plan_report = run(VALIDATE, str(brown), expected=1)
+        assert "PLAN_FIELD" in hidden_plan_report.stdout and "PLAN_STATUS" in hidden_plan_report.stdout
+        shutil.rmtree(hidden_plan_dir)
+
+        product_doc = brown / "docs/product/index.md"
+        original_product = product_doc.read_text(encoding="utf-8")
+        product_doc.write_text(
+            original_product
+            + "\n~~~md\n[tilde-doc](missing-under-tilde.md)\n~~~\n",
+            encoding="utf-8", newline="\n",
+        )
+        index_doc = brown / "docs/INDEX.md"
+        original_index = index_doc.read_text(encoding="utf-8")
+        index_doc.write_text(
+            "\ufeff[pwned]: #ignored-anchor\n[use][pwned]\n" + original_index,
+            encoding="utf-8", newline="\n",
+        )
+        fences_report = run(VALIDATE, str(brown))
+        assert "missing-under-tilde" not in fences_report.stdout
+        assert "UNDEFINED_LINK_REFERENCE" not in fences_report.stdout
+        product_doc.write_text(original_product, encoding="utf-8", newline="\n")
+        index_doc.write_text(original_index, encoding="utf-8", newline="\n")
+
+        claude_doc = brown / "CLAUDE.md"
+        original_claude = claude_doc.read_text(encoding="utf-8")
+        claude_doc.write_text(
+            "# Vendor notes\nTeam contact: ops@AGENTS.md.invalid - plain mention only.\n",
+            encoding="utf-8", newline="\n",
+        )
+        decoy_report = run(VALIDATE, str(brown), expected=1)
+        assert "CLAUDE_IMPORT" in decoy_report.stdout
+        claude_doc.write_text(original_claude, encoding="utf-8", newline="\n")
+
         bad_cwd = json.loads(manifest_path.read_text(encoding="utf-8"))
         bad_cwd["commands"] = {
             "test": [{"argv": ["python", "-c", "pass"], "cwd": "AGENTS.md", "required": True}]
@@ -548,19 +625,20 @@ def main() -> int:
             assert repository_audit["documentation"]["architecture"] is False
             assert repository_audit["verification"]["tests"] is True
 
-        component_skill = component / ".agents/skills/component-skill"
-        component_skill.mkdir(parents=True)
-        (component_skill / "SKILL.md").write_text(
-            "---\nname: component-skill\ndescription: Component workflow.\n---\n", encoding="utf-8"
-        )
-        run(SCAFFOLD, str(monorepo), "--mode", "brownfield", "--apply")
-        nested_sync = run(SCRIPTS / "sync_skill_adapters.py", str(monorepo), "--apply", expected=1)
-        assert "not cross-tool portable" in nested_sync.stdout
-        assert not (component / ".claude/skills/component-skill").exists()
-        nested_validation = run(VALIDATE, str(monorepo), expected=1)
-        assert "NESTED_SKILL_NOT_PORTABLE" in nested_validation.stdout
-        component_sync = run(SCRIPTS / "sync_skill_adapters.py", str(component), expected=1)
-        assert "not cross-tool portable" in component_sync.stdout
+        if shutil.which("git"):
+            component_skill = component / ".agents/skills/component-skill"
+            component_skill.mkdir(parents=True)
+            (component_skill / "SKILL.md").write_text(
+                "---\nname: component-skill\ndescription: Component workflow.\n---\n", encoding="utf-8"
+            )
+            run(SCAFFOLD, str(monorepo), "--mode", "brownfield", "--apply")
+            nested_sync = run(SCRIPTS / "sync_skill_adapters.py", str(monorepo), "--apply", expected=1)
+            assert "not cross-tool portable" in nested_sync.stdout
+            assert not (component / ".claude/skills/component-skill").exists()
+            nested_validation = run(VALIDATE, str(monorepo), expected=1)
+            assert "NESTED_SKILL_NOT_PORTABLE" in nested_validation.stdout
+            component_sync = run(SCRIPTS / "sync_skill_adapters.py", str(component), expected=1)
+            assert "not cross-tool portable" in component_sync.stdout
 
         heuristic = base / "heuristic-audit"
         (heuristic / "tests").mkdir(parents=True)
@@ -587,6 +665,17 @@ def main() -> int:
         pnpm_commands = json.loads(run(AUDIT, str(pnpm_repo), "--format", "json").stdout)["discoveredCommands"]
         assert pnpm_commands["setup"][0]["argv"][:2] == ["pnpm", "install"]
         assert pnpm_commands["test"][0]["argv"] == ["pnpm", "test"]
+
+        conflict_repo = base / "manager-conflict"
+        conflict_repo.mkdir()
+        (conflict_repo / "package.json").write_text(
+            '{"name":"stale","packageManager":"pnpm@9.0.0","scripts":{"test":"node --test"}}\n',
+            encoding="utf-8",
+        )
+        (conflict_repo / "yarn.lock").write_text("# orphaned lockfile from a yarn era\n", encoding="utf-8")
+        conflict_commands = json.loads(run(AUDIT, str(conflict_repo), "--format", "json").stdout)["discoveredCommands"]
+        assert conflict_commands["setup"][0]["argv"] == ["yarn", "install", "--frozen-lockfile"]
+        assert conflict_commands["test"][0]["argv"] == ["yarn", "test"]
 
         invalid_package = base / "invalid-package"
         invalid_package.mkdir()

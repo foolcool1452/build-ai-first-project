@@ -103,6 +103,13 @@ def main() -> int:
         ),
     }
 
+    def is_link_like(path: Path) -> bool:
+        try:
+            return path.is_symlink() or bool(getattr(path, "is_junction", lambda: False)())
+        except OSError:
+            return True
+
+    resolved_root = root.resolve()
     operations: list[tuple[str, Path, Path | None]] = []
     blockers: list[tuple[Path, str]] = []
     for source, relative in template_files(args.knowledge_profile):
@@ -115,17 +122,30 @@ def main() -> int:
             action = "block"
         else:
             action = "skip" if target.exists() else "create"
-        parent = target.parent
-        while parent != root:
-            if parent.is_symlink():
-                blockers.append((parent, "ancestor is a symlink"))
+        if action == "create":
+            parent = target.parent
+            while parent != root:
+                if is_link_like(parent):
+                    blockers.append((parent, "ancestor is a symlink or junction"))
+                    action = "block"
+                    break
+                if parent.exists() and not parent.is_dir():
+                    blockers.append((parent, "a file blocks a required directory"))
+                    action = "block"
+                    break
+                parent = parent.parent
+            # Final containment net: resolution follows junctions, so a target
+            # whose parents were rewritten outside the root can never slip past.
+            try:
+                target_resolved = target.resolve()
+                resolves_inside = (
+                    target_resolved == resolved_root or resolved_root in target_resolved.parents
+                )
+            except OSError:
+                resolves_inside = False
+            if action == "create" and not resolves_inside:
+                blockers.append((relative.as_posix(), "path resolves outside the repository root"))
                 action = "block"
-                break
-            if parent.exists() and not parent.is_dir():
-                blockers.append((parent, "a file blocks a required directory"))
-                action = "block"
-                break
-            parent = parent.parent
         operations.append((action, target, source))
 
     print(f"Project: {root}")
@@ -141,11 +161,15 @@ def main() -> int:
         print("\nExisting files will be preserved. Review and merge them manually after scaffolding.")
     if blockers:
         print("\nBlocking path conflicts:")
-        seen: set[tuple[Path, str]] = set()
-        for target, reason in blockers:
-            if (target, reason) not in seen:
-                seen.add((target, reason))
-                print(f"  error  {target.relative_to(root).as_posix()}: {reason}")
+        seen: set[tuple[Path | str, str]] = set()
+        for blocker_entry, reason in blockers:
+            if (blocker_entry, reason) not in seen:
+                seen.add((blocker_entry, reason))
+                label = (
+                    blocker_entry.relative_to(root).as_posix()
+                    if isinstance(blocker_entry, Path) else blocker_entry
+                )
+                print(f"  error  {label}: {reason}")
         print("No files were written.")
         return 1
     if not args.apply:

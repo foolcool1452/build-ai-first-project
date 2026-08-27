@@ -6,8 +6,16 @@ on:
     tags: ["v*"]
   pull_request:
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
 jobs:
   self-test:
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:

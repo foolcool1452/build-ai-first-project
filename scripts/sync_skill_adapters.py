@@ -13,6 +13,7 @@ from pathlib import Path
 
 
 MARKER = ".ai-source.json"
+MARKER_MAX_BYTES = 65536
 SKIP_DIRS = {
     ".git", ".hg", ".svn", "node_modules", "vendor", "dist", "build",
     "target", ".venv", "venv", "__pycache__", ".next", ".turbo",
@@ -159,9 +160,11 @@ def marker_value(source: Path, digest: str) -> dict[str, str | int]:
 
 def read_marker(path: Path) -> dict:
     try:
-        value = json.loads(path.read_text(encoding="utf-8"))
+        if path.stat().st_size > MARKER_MAX_BYTES:
+            return {}
+        value = json.loads(path.read_text(encoding="utf-8-sig"))
         return value if isinstance(value, dict) else {}
-    except (OSError, UnicodeError, json.JSONDecodeError):
+    except (OSError, UnicodeError, ValueError, RecursionError):
         return {}
 
 
@@ -211,9 +214,7 @@ def check_or_apply(root: Path, source: Path, apply: bool) -> tuple[bool, str]:
     marker = read_marker(marker_path)
     expected_source = source.relative_to(source.parent.parent.parent).as_posix()
     recorded_source = marker.get("source")
-    owned_source = isinstance(recorded_source, str) and (
-        recorded_source == expected_source or recorded_source.endswith("/" + expected_source)
-    )
+    owned_source = isinstance(recorded_source, str) and recorded_source == expected_source
     if not owned_source or not isinstance(marker.get("digest"), str):
         return False, f"error   {relative}: unmanaged directory; preserve it and resolve manually"
 
@@ -270,7 +271,7 @@ def prune_orphan(root: Path, destination: Path, apply: bool) -> tuple[bool, str]
     recorded = marker.get("digest")
     expected_source = f".agents/skills/{destination.name}"
     source = marker.get("source")
-    owned_source = isinstance(source, str) and (source == expected_source or source.endswith("/" + expected_source))
+    owned_source = isinstance(source, str) and source == expected_source
     if marker.get("schemaVersion") != 1 or not owned_source:
         return False, f"error   {relative}: orphaned directory is unmanaged; preserve and resolve manually"
     try:

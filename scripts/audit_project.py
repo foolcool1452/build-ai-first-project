@@ -62,10 +62,22 @@ def resolve_root(path: Path) -> Path:
     raise ValueError(f"--scope repository requires a containing Git repository: {path}")
 
 
+def is_link_like(path: Path) -> bool:
+    """Treat symlinks and Windows junctions as indirections; junction cycles
+    otherwise make os.walk revisit the same subtree indefinitely."""
+    try:
+        return path.is_symlink() or bool(getattr(path, "is_junction", lambda: False)())
+    except OSError:
+        return True
+
+
 def iter_files(root: Path):
     for current, dirs, files in os.walk(root):
-        dirs[:] = sorted(d for d in dirs if d not in SKIP_DIRS)
         base = Path(current)
+        dirs[:] = sorted(
+            d for d in dirs
+            if d not in SKIP_DIRS and not is_link_like(base / d)
+        )
         for name in sorted(files):
             yield base / name
 
@@ -126,7 +138,9 @@ def is_architecture_check_path(value: str) -> bool:
         return is_test_path(value) or compact in {"checkarchitecture", "architecturecheck"} or path.stem.lower().endswith(("test", "tests")) or any(
             token in compact for token in ("archunit", "dependencycruiser", "importlinter")
         )
-    return suffix in {".json", ".toml", ".yml", ".yaml"} and any(
+    # .cjs/.mjs cover dependency-cruiser's common configs; "" covers the
+    # extensionless `.importlinter` dotfile convention.
+    return suffix in {".json", ".toml", ".yml", ".yaml", ".cjs", ".mjs", ".ini", ".cfg", ""} and any(
         token in compact for token in ("dependencycruiser", "importlinter")
     )
 
@@ -165,20 +179,25 @@ def discover_commands(root: Path) -> dict[str, list[dict[str, Any]]]:
             package_valid = True
         scripts = data.get("scripts", {}) if isinstance(data.get("scripts"), dict) else {}
         declared_manager = data.get("packageManager", "").split("@", 1)[0] if isinstance(data.get("packageManager"), str) else ""
-        if (root / "pnpm-lock.yaml").exists() or declared_manager == "pnpm":
+        has_pnpm_lock = (root / "pnpm-lock.yaml").exists()
+        has_yarn_lock = (root / "yarn.lock").exists()
+        has_bun_lock = (root / "bun.lock").exists() or (root / "bun.lockb").exists()
+        has_npm_lock = (root / "package-lock.json").exists()
+        # A lockfile on disk outranks a stale packageManager declaration from
+        # an earlier, differently-managed incarnation of the repository.
+        if has_pnpm_lock or (declared_manager == "pnpm" and not any((has_yarn_lock, has_bun_lock, has_npm_lock))):
             runner = ["pnpm"]
-            install = ["pnpm", "install"] + (["--frozen-lockfile"] if (root / "pnpm-lock.yaml").exists() else [])
-        elif (root / "yarn.lock").exists() or declared_manager == "yarn":
+            install = ["pnpm", "install"] + (["--frozen-lockfile"] if has_pnpm_lock else [])
+        elif has_yarn_lock or (declared_manager == "yarn" and not any((has_pnpm_lock, has_bun_lock, has_npm_lock))):
             runner = ["yarn"]
             frozen = ["--immutable"] if (root / ".yarnrc.yml").exists() else ["--frozen-lockfile"]
-            install = ["yarn", "install"] + (frozen if (root / "yarn.lock").exists() else [])
-        elif (root / "bun.lock").exists() or (root / "bun.lockb").exists() or declared_manager == "bun":
+            install = ["yarn", "install"] + (frozen if has_yarn_lock else [])
+        elif has_bun_lock or (declared_manager == "bun" and not any((has_pnpm_lock, has_yarn_lock, has_npm_lock))):
             runner = ["bun", "run"]
-            has_lock = (root / "bun.lock").exists() or (root / "bun.lockb").exists()
-            install = ["bun", "install"] + (["--frozen-lockfile"] if has_lock else [])
+            install = ["bun", "install"] + (["--frozen-lockfile"] if has_bun_lock else [])
         else:
             runner = ["npm", "run"]
-            install = ["npm", "ci"] if (root / "package-lock.json").exists() else ["npm", "install"]
+            install = ["npm", "ci"] if has_npm_lock else ["npm", "install"]
         if package_valid:
             discovered["setup"].append(command(install, required=False, timeout=1200))
         aliases = {

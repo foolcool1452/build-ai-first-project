@@ -7,6 +7,7 @@ import argparse
 import hashlib
 import json
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -44,6 +45,40 @@ CANONICAL_STATUSES = {"verified", "observed", "proposed", "generated"}
 ACTIVE_PLAN_STATUSES = {"active", "blocked", "paused"}
 AGENT_STATUSES = {"active", "idle", "retired"}
 TASK_BOARD_IGNORES = {"readme.md", "template.md"}
+MANIFEST_MAX_BYTES = 2_000_000
+MAX_SCHEMA_DEPTH = 64
+MAX_ARGV_ELEMENT_CHARS = 4096
+
+
+def is_link_like(path: Path) -> bool:
+    """Treat symlinks and Windows junctions as indirections (3.11 has no is_junction)."""
+    try:
+        return path.is_symlink() or bool(getattr(path, "is_junction", lambda: False)())
+    except OSError:
+        return True
+
+
+def read_text_sig(path: Path) -> str:
+    """Read text tolerating a UTF-8 BOM so anchored regexes see real line starts."""
+    return path.read_text(encoding="utf-8-sig", errors="replace")
+
+
+def load_json_strict(path: Path, description: str) -> dict[str, Any]:
+    """Parse JSON rejecting duplicate keys and oversized files; raises ValueError/RecursionError."""
+    size = path.stat().st_size
+    if size > MANIFEST_MAX_BYTES:
+        raise ValueError(f"{description} exceeds the {MANIFEST_MAX_BYTES} byte limit ({size} bytes).")
+    def reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        result: dict[str, Any] = {}
+        for key, value in pairs:
+            if key in result:
+                raise json.JSONDecodeError(f"duplicate key {key!r}", "", 0)
+            result[key] = value
+        return result
+    loaded = json.loads(read_text_sig(path), object_pairs_hook=reject_duplicate_keys)
+    if not isinstance(loaded, dict):
+        raise ValueError(f"{description} root must be a JSON object.")
+    return loaded
 SKIP_LINK_DIRS = {".git", "node_modules", "vendor", "dist", "build", "target", ".venv", "venv"}
 SECRET_ASSIGNMENT_RE = re.compile(
     r"(?ix)"
@@ -103,26 +138,36 @@ def is_absolute_argument(value: str) -> bool:
         Path(value).is_absolute()
         or PurePosixPath(value).is_absolute()
         or PureWindowsPath(value).is_absolute()
-        or value.startswith(("~/", "~\\"))
+        or value.startswith(("~",))
+        or re.match(r"(?i)^[A-Za-z]:(?:[^/\\]|$)", value) is not None
     )
 
 
 def fenced_lines(text: str) -> set[int]:
-    """Line numbers (1-based) inside fenced code blocks, for link scanning."""
+    """Line numbers (1-based) inside fenced code blocks (``` or ~~~), for link scanning."""
     fenced: set[int] = []
-    inside = False
+    fence_token: str | None = None
     for number, line in enumerate(text.splitlines(), start=1):
-        if line.lstrip().startswith("```"):
-            inside = not inside
+        stripped = line.lstrip()
+        if fence_token:
+            if stripped.startswith(fence_token):
+                fence_token = None
+            else:
+                fenced.append(number)
             continue
-        if inside:
-            fenced.append(number)
+        if stripped.startswith("```"):
+            fence_token = "```"
+        elif stripped.startswith("~~~"):
+            fence_token = "~~~"
     return set(fenced)
 
 
-def schema_violations(value: Any, schema: dict[str, Any], location: str = "$") -> list[str]:
+def schema_violations(value: Any, schema: dict[str, Any], location: str = "$", depth: int = MAX_SCHEMA_DEPTH) -> list[str]:
     """Validate the JSON Schema subset used by harness.schema.json."""
     errors: list[str] = []
+    if depth <= 0:
+        return [f"{location}: manifest nesting exceeds the supported schema depth."]
+    next_depth = depth - 1
     expected = schema.get("type")
     type_checks = {
         "object": lambda item: isinstance(item, dict),
@@ -149,8 +194,8 @@ def schema_violations(value: Any, schema: dict[str, Any], location: str = "$") -
             errors.append(f"{location}: array has fewer than {schema['minItems']} items")
         item_schema = schema.get("items")
         if isinstance(item_schema, dict):
-            for index, item in enumerate(value):
-                errors.extend(schema_violations(item, item_schema, f"{location}[{index}]"))
+                for index, item in enumerate(value):
+                    errors.extend(schema_violations(item, item_schema, f"{location}[{index}]", next_depth))
     if isinstance(value, dict):
         required = schema.get("required", [])
         if isinstance(required, list):
@@ -161,13 +206,13 @@ def schema_violations(value: Any, schema: dict[str, Any], location: str = "$") -
         properties = properties if isinstance(properties, dict) else {}
         for key, child_schema in properties.items():
             if key in value and isinstance(child_schema, dict):
-                errors.extend(schema_violations(value[key], child_schema, f"{location}.{key}"))
+                errors.extend(schema_violations(value[key], child_schema, f"{location}.{key}", next_depth))
         additional = schema.get("additionalProperties", True)
         for key in value.keys() - properties.keys():
             if additional is False:
                 errors.append(f"{location}: unexpected property {key!r}")
             elif isinstance(additional, dict):
-                errors.extend(schema_violations(value[key], additional, f"{location}.{key}"))
+                errors.extend(schema_violations(value[key], additional, f"{location}.{key}", next_depth))
     return errors
 
 
@@ -191,6 +236,7 @@ class Validator:
         self.include_command_output = include_command_output
         self.findings: list[Finding] = []
         self.manifest: dict[str, Any] = {}
+        self.manifest_loaded = False
         self.command_results: list[dict[str, Any]] = []
 
     def add(self, severity: str, code: str, message: str, path: Path | str | None = None):
@@ -229,17 +275,15 @@ class Validator:
             self.add("error", "MANIFEST_MISSING", "Missing .ai/harness.json.", path)
             return
         try:
-            value = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            value = load_json_strict(path, "harness.json")
+        except (OSError, UnicodeError, ValueError, RecursionError, MemoryError) as exc:
             self.add("error", "MANIFEST_INVALID", f"Cannot parse manifest JSON: {exc}", path)
             return
-        if not isinstance(value, dict):
-            self.add("error", "MANIFEST_INVALID", "Manifest root must be an object.", path)
-            return
         self.manifest = value
+        self.manifest_loaded = True
 
     def check_structure(self):
-        if not self.manifest:
+        if not self.manifest_loaded:
             return
         if self.manifest.get("$schema") != HARNESS_SCHEMA_REFERENCE:
             self.add(
@@ -252,8 +296,8 @@ class Validator:
             self.add("error", "SCHEMA_MISSING", "Missing fixed harness schema: .ai/harness.schema.json.", schema_path)
         else:
             try:
-                schema = json.loads(schema_path.read_text(encoding="utf-8"))
-                if not isinstance(schema, dict) or schema.get("type") != "object":
+                schema = load_json_strict(schema_path, "harness.schema.json")
+                if schema.get("type") != "object":
                     self.add("error", "SCHEMA_INVALID", "Harness schema must be a JSON object schema.", schema_path)
                 else:
                     if schema_fingerprint(schema) != HARNESS_SCHEMA_FINGERPRINT:
@@ -264,8 +308,26 @@ class Validator:
                         )
                     for violation in schema_violations(self.manifest, schema):
                         self.add("error", "SCHEMA_CONTRACT", violation, ".ai/harness.json")
-            except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            except (OSError, UnicodeError, ValueError, RecursionError, MemoryError) as exc:
                 self.add("error", "SCHEMA_INVALID", f"Cannot parse harness schema: {exc}", schema_path)
+        validation = self.manifest.get("validation")
+        if isinstance(validation, dict):
+            checks = validation.get("requiredChecks")
+        else:
+            checks = None
+        if isinstance(checks, list) and all(isinstance(check, str) for check in checks):
+            unknown = sorted(set(checks) - SUPPORTED_CHECKS)
+            if unknown:
+                self.add("error", "UNKNOWN_CHECK", f"Unknown required checks: {', '.join(unknown)}", ".ai/harness.json")
+        validation = self.manifest.get("validation")
+        if isinstance(validation, dict):
+            checks = validation.get("requiredChecks")
+        else:
+            checks = None
+        if isinstance(checks, list) and all(isinstance(check, str) for check in checks):
+            unknown = sorted(set(checks) - SUPPORTED_CHECKS)
+            if unknown:
+                self.add("error", "UNKNOWN_CHECK", f"Unknown required checks: {', '.join(unknown)}", ".ai/harness.json")
         guidance = self.manifest.get("guidance")
         if isinstance(guidance, dict):
             self.repo_path(guidance.get("entrypoint"), "GUIDANCE_PATH")
@@ -276,15 +338,6 @@ class Validator:
             for key in ("plans", "operations", "quality", "generated", "agents", "tasks"):
                 if key in knowledge:
                     self.repo_path(knowledge.get(key), f"KNOWLEDGE_{key.upper()}")
-        validation = self.manifest.get("validation")
-        if isinstance(validation, dict):
-            checks = validation.get("requiredChecks")
-        else:
-            checks = None
-        if isinstance(checks, list) and all(isinstance(check, str) for check in checks):
-            unknown = sorted(set(checks) - SUPPORTED_CHECKS)
-            if unknown:
-                self.add("error", "UNKNOWN_CHECK", f"Unknown required checks: {', '.join(unknown)}", ".ai/harness.json")
         for source in nested_skills(self.root):
             self.add(
                 "error", "NESTED_SKILL_NOT_PORTABLE",
@@ -300,7 +353,7 @@ class Validator:
         if path is None or not path.exists():
             return
         try:
-            text = path.read_text(encoding="utf-8", errors="replace")
+            text = read_text_sig(path)
         except OSError as exc:
             self.add("error", "GUIDANCE_READ", f"Cannot read guidance: {exc}", path)
             return
@@ -342,13 +395,13 @@ class Validator:
                 if path.resolve() != (self.root / guidance.get("entrypoint", "AGENTS.md")).resolve():
                     self.add("error", "CLAUDE_SYMLINK", "Claude adapter symlink does not resolve to canonical guidance.", path)
                 return
-            text = path.read_text(encoding="utf-8", errors="replace")
+            text = read_text_sig(path)
         except OSError as exc:
             self.add("error", "CLAUDE_READ", f"Cannot read Claude adapter: {exc}", path)
             return
         entry = guidance.get("entrypoint", "AGENTS.md")
-        if f"@{entry}" not in text:
-            self.add("error", "CLAUDE_IMPORT", f"Claude adapter must import @{entry} or symlink to it.", path)
+        if not re.search(rf"(?m)^@{re.escape(entry)}\s*$", text):
+            self.add("error", "CLAUDE_IMPORT", f"Claude adapter must contain a line importing @{entry} (or symlink to it).", path)
         if len(text.splitlines()) > 60:
             self.add("warning", "CLAUDE_BLOAT", "Claude adapter exceeds 60 lines; move shared content to canonical guidance or on-demand rules.", path)
 
@@ -439,7 +492,12 @@ class Validator:
 
         def check_target(path: Path, raw: str):
             target = raw.strip()
-            if not target or target.startswith("#") or re.match(r"^[A-Za-z][A-Za-z0-9+.-]*:", target):
+            if not target or target.startswith("#"):
+                return
+            if re.match(r"(?i)^[A-Za-z]:(\\|/)", target):
+                self.add("error", "LINK_ESCAPE", f"Local link must stay inside the repository (machine-specific drive path): {raw}", path)
+                return
+            if re.match(r"^[A-Za-z][A-Za-z0-9+.-]*:", target):
                 return
             target = unquote(target.split("#", 1)[0])
             resolved = path.parent / target
@@ -449,7 +507,7 @@ class Validator:
                 self.add("error", "BROKEN_LINK", f"Broken local link: {raw}", path)
 
         for path in self.markdown_files():
-            text = path.read_text(encoding="utf-8", errors="replace")
+            text = read_text_sig(path)
             in_fence = fenced_lines(text)
 
             def line_of(offset: int) -> int:
@@ -504,7 +562,7 @@ class Validator:
             freshness = 90
         placeholders: list[Path] = []
         for path in self.canonical_markdown_paths():
-            text = path.read_text(encoding="utf-8", errors="replace")
+            text = read_text_sig(path)
             for field in ("Status", "Last verified", "Sources"):
                 if not re.search(rf"(?mi)^{re.escape(field)}:\s*\S", text):
                     self.add("error", "METADATA_MISSING", f"Canonical document is missing '{field}:' metadata.", path)
@@ -542,7 +600,7 @@ class Validator:
             paths = generated.rglob("*.md") if generated.is_dir() else [generated]
             generator_placeholders: list[Path] = []
             for path in paths:
-                text = path.read_text(encoding="utf-8", errors="replace")
+                text = read_text_sig(path)
                 generator = re.search(r"(?mi)^Generator:\s*(\S.*?)\s*$", text)
                 if not generator:
                     self.add("error", "GENERATOR_MISSING", "Generated documentation must declare 'Generator:'.", path)
@@ -568,7 +626,7 @@ class Validator:
         for path in plans.rglob("*.md"):
             if path.name.lower() in {"readme.md", "index.md", "template.md"}:
                 continue
-            text = path.read_text(encoding="utf-8", errors="replace")
+            text = read_text_sig(path)
             match = re.search(r"(?mi)^Plan ID:\s*(\S+)\s*$", text)
             if not match:
                 continue
@@ -581,10 +639,10 @@ class Validator:
         if not active.exists():
             self.add("warning", "ACTIVE_PLANS_DIR", "Plans directory has no active/ subdirectory.", plans)
             return
-        for path in active.glob("*.md"):
+        for path in sorted(active.rglob("*.md")):
             if path.name.lower() in {"readme.md", "index.md"}:
                 continue
-            text = path.read_text(encoding="utf-8", errors="replace")
+            text = read_text_sig(path)
             for heading in PLAN_HEADINGS:
                 if not re.search(rf"(?mi)^##\s+{re.escape(heading)}\s*$", text):
                     self.add("error", "PLAN_FIELD", f"Active plan is missing heading: {heading}", path)
@@ -705,7 +763,7 @@ class Validator:
             if agent_key not in registered:
                 self.add(
                     "warning", "TASK_BOARD_UNREGISTERED",
-                    f"Task board '{path.name}' has no matching agent section in the registry; add an entry to docs/agents/REGISTRY.md or remove the board.",
+                    f"Task board '{path.name}' has no matching section in the configured agent registry; register it or remove the board.",
                     path,
                 )
         archive = tasks_dir / "archive"
@@ -713,10 +771,20 @@ class Validator:
             for path in sorted(archive.glob("*.md")):
                 if path.name.lower() in TASK_BOARD_IGNORES:
                     continue
-                if not re.fullmatch(r"\d{4}-\d{2}-\d{2}-\S+", path.stem):
+                stem_match = re.fullmatch(r"(\d{4}-\d{2}-\d{2})-(\S+)", path.stem)
+                if stem_match is None:
                     self.add(
                         "warning", "ARCHIVE_NAME",
                         f"Archive file should be named <YYYY-MM-DD>-<agent-id>.md; found '{path.name}'.",
+                        path,
+                    )
+                    continue
+                try:
+                    datetime.strptime(stem_match.group(1), "%Y-%m-%d")
+                except ValueError:
+                    self.add(
+                        "warning", "ARCHIVE_NAME",
+                        f"Archive date '{stem_match.group(1)}' is not a valid calendar day in '{path.name}'.",
                         path,
                     )
 
@@ -739,6 +807,10 @@ class Validator:
                 argv = item.get("argv")
                 if not isinstance(argv, list) or not argv or not all(isinstance(x, str) and x for x in argv):
                     self.add("error", "COMMAND_ARGV", f"commands.{group}[{index}].argv must be a non-empty string array.", ".ai/harness.json")
+                    continue
+                oversized = [position for position, value in enumerate(argv) if len(value) > MAX_ARGV_ELEMENT_CHARS]
+                if oversized:
+                    self.add("error", "COMMAND_ARGV_LENGTH", f"commands.{group}[{index}] has argument(s) over {MAX_ARGV_ELEMENT_CHARS} characters at positions: {', '.join(map(str, oversized))}.", ".ai/harness.json")
                     continue
                 absolute_indexes = [position for position, value in enumerate(argv) if is_absolute_argument(value)]
                 if absolute_indexes:
@@ -840,6 +912,14 @@ class Validator:
         for group in COMMAND_ORDER:
             for item in commands.get(group, []):
                 argv = item["argv"]
+                # Bare tool names are resolved through PATH (never the current
+                # directory) so a repo-local same-named executable cannot shadow
+                # the registered command on Windows.
+                executable = argv[0]
+                if not Path(executable).drive and not PurePosixPath(executable).is_absolute() and "/" not in executable and "\\" not in executable:
+                    resolved = shutil.which(executable)
+                    if resolved:
+                        argv = [resolved, *argv[1:]]
                 safe_argv = redact_argv(argv)
                 cwd = item.get("cwdPath")
                 if cwd is None:
@@ -884,7 +964,7 @@ class Validator:
     def validate(self, run_commands: bool = False):
         self.load_manifest()
         self.check_structure()
-        if not self.manifest:
+        if not self.manifest_loaded:
             return
         validation = self.manifest.get("validation")
         raw_checks = validation.get("requiredChecks") if isinstance(validation, dict) else None
@@ -919,6 +999,15 @@ class Validator:
         }
 
 
+def sanitize_markdown(value: str) -> str:
+    """Neutralize markdown structure injection from untrusted finding text.
+
+    Folding control characters and newlines means one finding always renders as
+    exactly one bullet line: no fake headings, no opening code fences.
+    """
+    return re.sub(r"[\x00-\x1f\x7f]+", " ", value)
+
+
 def report_markdown(report: dict[str, Any]) -> str:
     lines = [
         "# AI-first Harness Validation", "",
@@ -930,8 +1019,8 @@ def report_markdown(report: dict[str, Any]) -> str:
     if not report["findings"]:
         lines.append("- No findings.")
     for finding in report["findings"]:
-        location = f" (`{finding['path']}`)" if finding.get("path") else ""
-        lines.append(f"- **{finding['severity'].upper()} {finding['code']}**{location}: {finding['message']}")
+        location = f" (`{sanitize_markdown(finding['path'])}`)" if finding.get("path") else ""
+        lines.append(f"- **{finding['severity'].upper()} {sanitize_markdown(finding['code'])}**{location}: {sanitize_markdown(finding['message'])}")
     if report["commandResults"]:
         lines.extend(["", "## Commands", ""])
         for item in report["commandResults"]:
