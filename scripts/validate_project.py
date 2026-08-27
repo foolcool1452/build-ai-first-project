@@ -250,6 +250,10 @@ class Validator:
                     self.add("error", "MANIFEST_CONTRACT", f"knowledge.{key} must be a non-empty repository-relative path.", manifest_path)
         if not isinstance(self.manifest.get("commands"), dict):
             self.add("error", "MANIFEST_CONTRACT", "commands must be an object of command groups.", manifest_path)
+        if isinstance(guidance, dict) and "maxLines" in guidance:
+            max_lines = guidance.get("maxLines")
+            if not isinstance(max_lines, int) or isinstance(max_lines, bool) or not 20 <= max_lines <= 400:
+                self.add("error", "MANIFEST_CONTRACT", "guidance.maxLines must be an integer between 20 and 400; out-of-range values would silently disable the budget check.", manifest_path)
         validation = self.manifest.get("validation")
         checks = validation.get("requiredChecks") if isinstance(validation, dict) else None
         if not isinstance(checks, list) or not all(isinstance(check, str) for check in checks):

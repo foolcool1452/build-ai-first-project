@@ -645,6 +645,13 @@ def main() -> int:
         (brown / "AGENTS.md").write_text(original_guidance + "\n" + "extra\n" * 130, encoding="utf-8")
         failed = run(VALIDATE, str(brown), expected=1)
         assert "GUIDANCE_BLOAT" in failed.stdout
+
+        # A typo'd maxLines must fail the contract, not silently disable the budget.
+        current_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        current_manifest["guidance"]["maxLines"] = 5000
+        write_json(manifest_path, current_manifest)
+        typo_report = run(VALIDATE, str(brown), expected=1)
+        assert "MANIFEST_CONTRACT" in typo_report.stdout and "maxLines" in typo_report.stdout
         assert not list(base.rglob("__pycache__"))
 
     print("self-test: PASS")
