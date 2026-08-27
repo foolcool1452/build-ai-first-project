@@ -23,6 +23,39 @@ NON_LIVE_PARTS = {
 }
 
 
+def is_link_like(path: Path) -> bool:
+    """Treat symlinks and Windows junctions as indirections."""
+    try:
+        return path.is_symlink() or bool(getattr(path, "is_junction", lambda: False)())
+    except OSError:
+        return True
+
+
+def is_inside(path: Path, root: Path) -> bool:
+    try:
+        path.resolve().relative_to(root.resolve())
+        return True
+    except (OSError, ValueError):
+        return False
+
+
+def destination_issue(root: Path, destination: Path) -> str | None:
+    """Reject managed destinations whose parents can redirect writes outside root."""
+    root = root.resolve()
+    parent = destination.parent
+    while parent != root:
+        try:
+            parent.relative_to(root)
+        except ValueError:
+            return "destination is not under the repository root"
+        if is_link_like(parent):
+            return f"ancestor is a symlink or junction: {parent.relative_to(root).as_posix()}"
+        parent = parent.parent
+    if not is_inside(destination, root):
+        return "destination resolves outside the repository root"
+    return None
+
+
 def is_live(path: Path, root: Path) -> bool:
     parts = list(path.relative_to(root).parts)
     lowered = [part.lower() for part in parts]
@@ -36,9 +69,15 @@ def all_skill_dirs(root: Path):
         if directory.name == "skills" and directory.parent.name == ".agents":
             for name in sorted(dirs):
                 candidate = directory / name
-                if candidate.is_symlink() and is_live(candidate, root):
+                if is_link_like(candidate) and is_live(candidate, root):
                     yield candidate
-        dirs[:] = sorted(name for name in dirs if name not in SKIP_DIRS and name != ".claude")
+        dirs[:] = sorted(
+            name for name in dirs
+            if name not in SKIP_DIRS
+            and name != ".claude"
+            and not is_link_like(directory / name)
+            and is_inside(directory / name, root)
+        )
         if (
             "SKILL.md" in files
             and directory.parent.name == "skills"
@@ -89,15 +128,17 @@ def digest_bytes(path: Path) -> bytes:
 
 
 def tree_files(directory: Path) -> list[Path]:
-    if directory.is_symlink():
-        raise ValueError(f"skill source must not be a symlink: {directory}")
+    if is_link_like(directory):
+        raise ValueError(f"skill source must not be a symlink or junction: {directory}")
     files: list[Path] = []
     for current, dirs, names in os.walk(directory, followlinks=False):
         base = Path(current)
         for name in [*dirs, *names]:
             candidate = base / name
-            if candidate.is_symlink():
-                raise ValueError(f"skill tree contains a symlink: {candidate.relative_to(directory).as_posix()}")
+            if is_link_like(candidate):
+                raise ValueError(
+                    f"skill tree contains a symlink or junction: {candidate.relative_to(directory).as_posix()}"
+                )
         files.extend(base / name for name in names if name != MARKER)
     return sorted(files, key=lambda path: path.relative_to(directory).as_posix())
 
@@ -125,6 +166,9 @@ def read_marker(path: Path) -> dict:
 
 
 def write_managed_copy(root: Path, source: Path, destination: Path, source_digest: str) -> None:
+    issue = destination_issue(root, destination)
+    if issue:
+        raise ValueError(issue)
     destination.parent.mkdir(parents=True, exist_ok=True)
     shutil.copytree(source, destination)
     marker = marker_value(source, source_digest)
@@ -138,6 +182,9 @@ def write_managed_copy(root: Path, source: Path, destination: Path, source_diges
 def check_or_apply(root: Path, source: Path, apply: bool) -> tuple[bool, str]:
     destination = destination_for(source)
     relative = destination.relative_to(root).as_posix()
+    issue = destination_issue(root, destination)
+    if issue:
+        return False, f"error   {relative}: {issue}"
     try:
         source_digest = tree_digest(source)
     except (OSError, ValueError) as exc:
@@ -151,7 +198,10 @@ def check_or_apply(root: Path, source: Path, apply: bool) -> tuple[bool, str]:
     if not destination.exists():
         if not apply:
             return False, f"missing {relative}"
-        write_managed_copy(root, source, destination, source_digest)
+        try:
+            write_managed_copy(root, source, destination, source_digest)
+        except (OSError, ValueError) as exc:
+            return False, f"error   {relative}: {exc}"
         return True, f"created {relative}"
 
     if not destination.is_dir():
@@ -182,14 +232,26 @@ def check_or_apply(root: Path, source: Path, apply: bool) -> tuple[bool, str]:
         return False, f"stale   {relative}"
 
     # The marker and digest prove this is an unchanged generated mirror owned by this script.
-    shutil.rmtree(destination)
-    write_managed_copy(root, source, destination, source_digest)
+    issue = destination_issue(root, destination)
+    if issue:
+        return False, f"error   {relative}: {issue}"
+    try:
+        shutil.rmtree(destination)
+        write_managed_copy(root, source, destination, source_digest)
+    except (OSError, ValueError) as exc:
+        return False, f"error   {relative}: {exc}"
     return True, f"updated {relative}"
 
 
 def managed_mirrors(root: Path):
     for current, dirs, files in os.walk(root):
-        dirs[:] = sorted(name for name in dirs if name not in SKIP_DIRS)
+        directory = Path(current)
+        dirs[:] = sorted(
+            name for name in dirs
+            if name not in SKIP_DIRS
+            and not is_link_like(directory / name)
+            and is_inside(directory / name, root)
+        )
         destination = Path(current)
         if (
             MARKER in files
@@ -201,6 +263,9 @@ def managed_mirrors(root: Path):
 
 def prune_orphan(root: Path, destination: Path, apply: bool) -> tuple[bool, str]:
     relative = destination.relative_to(root).as_posix()
+    issue = destination_issue(root, destination)
+    if issue:
+        return False, f"error   {relative}: {issue}"
     marker = read_marker(destination / MARKER)
     recorded = marker.get("digest")
     expected_source = f".agents/skills/{destination.name}"
@@ -216,7 +281,13 @@ def prune_orphan(root: Path, destination: Path, apply: bool) -> tuple[bool, str]
         return False, f"error   {relative}: orphaned mirror is modified or unmanaged; preserve and resolve manually"
     if not apply:
         return False, f"orphan  {relative} (use --prune to remove the unchanged managed mirror)"
-    shutil.rmtree(destination)
+    issue = destination_issue(root, destination)
+    if issue:
+        return False, f"error   {relative}: {issue}"
+    try:
+        shutil.rmtree(destination)
+    except OSError as exc:
+        return False, f"error   {relative}: {exc}"
     return True, f"pruned  {relative}"
 
 
@@ -256,4 +327,7 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
     raise SystemExit(main())

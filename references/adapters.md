@@ -64,6 +64,7 @@ python tools/ai/validate_harness.py .
 The sync script refreshes only mirrors whose marker proves they were generated and remain unmodified. It refuses to overwrite unmanaged or manually edited Claude skill directories.
 If a canonical skill is removed, the script reports the unchanged managed mirror as orphaned; inspect it, then use `--prune` for explicit removal. If a mirror was edited, preserve or reconcile the edits manually before regenerating it. Canonical portable skill trees must not contain symlinks, because mirrors must not copy content from outside the declared skill tree.
 The marker is an ownership and drift signal, not a cryptographic authenticity guarantee. Review skills from an untrusted repository before allowing any agent to load or run them.
+The sync script refuses managed destinations whose parent path is a symlink or junction, so generated mirrors cannot be redirected outside the repository.
 
 In canonical skill instructions, refer to bundled files with paths relative to the skill directory, such as `scripts/check.py`. Use `${KIMI_SKILL_DIR}` only in a Kimi-specific adapter; it is not a cross-tool placeholder.
 

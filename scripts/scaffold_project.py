@@ -63,7 +63,7 @@ def main() -> int:
     mode = report["modeRecommendation"] if args.mode == "auto" else args.mode
     spec_model = args.spec_model or ("living" if mode == "greenfield" else "flow-forward")
     project_name = args.project_name or root.name
-    commands_json = json.dumps(discover_commands(root), indent=2, ensure_ascii=False)
+    commands_json = json.dumps(discover_commands(root), indent=2, ensure_ascii=False).replace("\n", "\n  ")
     arch_status = "observed"
     intent_status = "proposed" if mode == "greenfield" else "observed"
     replacements = {
@@ -180,4 +180,7 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
     raise SystemExit(main())

@@ -16,6 +16,8 @@ from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
 from urllib.parse import unquote
 
+sys.dont_write_bytecode = True
+
 from sync_skill_adapters import (
     MARKER as SKILL_MARKER,
     destination_for,
@@ -51,12 +53,47 @@ SECRET_ASSIGNMENT_RE = re.compile(
 )
 BEARER_RE = re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]+")
 PRIVATE_KEY_RE = re.compile(r"-----BEGIN [^-]*PRIVATE KEY-----.*?-----END [^-]*PRIVATE KEY-----", re.DOTALL)
+SENSITIVE_OPTION_RE = re.compile(
+    r"(?i)^--?(?:api[-_]?key|access[-_]?token|auth[-_]?token|token|secret|password|passwd|"
+    r"authorization|cookie|private[-_]?key)$"
+)
 
 
 def redact_text(value: str) -> str:
     value = PRIVATE_KEY_RE.sub("[REDACTED PRIVATE KEY]", value)
     value = BEARER_RE.sub("Bearer [REDACTED]", value)
     return SECRET_ASSIGNMENT_RE.sub(lambda match: f"{match.group('prefix')}[REDACTED]", value)
+
+
+def redact_argv(argv: list[str]) -> list[str]:
+    redacted: list[str] = []
+    redact_next = False
+    for value in argv:
+        if redact_next:
+            redacted.append("[REDACTED]")
+            redact_next = False
+            continue
+        if SENSITIVE_OPTION_RE.fullmatch(value):
+            redacted.append(value)
+            redact_next = True
+            continue
+        option, separator, _ = value.partition("=")
+        if separator and SENSITIVE_OPTION_RE.fullmatch(option):
+            redacted.append(f"{option}=[REDACTED]")
+            continue
+        redacted.append(redact_text(value))
+    return redacted
+
+
+def sensitive_argument_positions(argv: list[str]) -> list[int]:
+    positions: list[int] = []
+    for index, value in enumerate(argv):
+        option, separator, _ = value.partition("=")
+        if separator and SENSITIVE_OPTION_RE.fullmatch(option):
+            positions.append(index)
+        elif index + 1 < len(argv) and SENSITIVE_OPTION_RE.fullmatch(value):
+            positions.append(index + 1)
+    return positions
 
 
 def is_absolute_argument(value: str) -> bool:
@@ -555,6 +592,15 @@ class Validator:
                     positions = ", ".join(str(position) for position in absolute_indexes)
                     self.add("error", "COMMAND_ABSOLUTE_PATH", f"commands.{group}[{index}] uses machine-specific absolute path arguments at positions: {positions}.", ".ai/harness.json")
                     continue
+                sensitive_indexes = sensitive_argument_positions(argv)
+                if sensitive_indexes:
+                    positions = ", ".join(str(position) for position in sensitive_indexes)
+                    self.add(
+                        "error", "COMMAND_SECRET_ARGUMENT",
+                        f"commands.{group}[{index}] appears to store sensitive values at argument positions: {positions}; use environment or credential-provider configuration instead.",
+                        ".ai/harness.json",
+                    )
+                    continue
                 cwd_value = item.get("cwd", ".")
                 cwd = self.repo_path(cwd_value, "COMMAND_CWD", required=True)
                 if cwd is None or not cwd.is_dir():
@@ -627,7 +673,7 @@ class Validator:
         for group in COMMAND_ORDER:
             for item in commands.get(group, []):
                 argv = item["argv"]
-                safe_argv = [redact_text(value) for value in argv]
+                safe_argv = redact_argv(argv)
                 cwd = item.get("cwdPath")
                 if cwd is None:
                     continue
@@ -739,7 +785,10 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("repo", nargs="?", default=".", help="Repository or project path")
     parser.add_argument("--strict", action="store_true", help="Promote warnings to errors")
-    parser.add_argument("--run-commands", action="store_true", help="Run safe registered verification groups without a shell")
+    parser.add_argument(
+        "--run-commands", action="store_true",
+        help="Run reviewed registered verification groups without a shell; repository commands are trusted code",
+    )
     parser.add_argument(
         "--include-command-output", action="store_true",
         help="Include redacted bounded command output in the report; omitted by default",
@@ -767,4 +816,7 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
     raise SystemExit(main())

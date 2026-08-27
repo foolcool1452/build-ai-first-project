@@ -20,7 +20,16 @@ VALIDATE = SCRIPTS / "validate_project.py"
 
 
 def invoke(argv: list[str], expected: int = 0) -> subprocess.CompletedProcess[str]:
-    env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
+    env = dict(os.environ)
+    env.pop("PYTHONUTF8", None)
+    env.pop("PYTHONIOENCODING", None)
+    env.pop("PYTHONDONTWRITEBYTECODE", None)
+    # Manifest commands address interpreters by bare name ("python"), which on
+    # Windows may resolve to the Microsoft Store alias; that stub can block
+    # indefinitely in headless sessions. Prefer the directory of the running
+    # interpreter so the real one wins PATH resolution.
+    interpreter_dir = Path(sys.executable).resolve().parent
+    env["PATH"] = str(interpreter_dir) + os.pathsep + env.get("PATH", "")
     result = subprocess.run(
         argv, check=False, capture_output=True, text=True, encoding="utf-8", errors="replace",
         timeout=60, env=env,
@@ -41,9 +50,33 @@ def write_json(path: Path, value: dict) -> None:
     path.write_text(json.dumps(value, indent=2, ensure_ascii=False) + "\n", encoding="utf-8", newline="\n")
 
 
+def create_directory_link(link: Path, target: Path) -> bool:
+    try:
+        link.symlink_to(target, target_is_directory=True)
+        return True
+    except OSError:
+        if os.name != "nt":
+            return False
+    result = subprocess.run(
+        ["cmd", "/c", "mklink", "/J", str(link), str(target)],
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=10,
+    )
+    return result.returncode == 0
+
+
 def main() -> int:
     with tempfile.TemporaryDirectory(prefix="ai-harness-self-test-") as temp:
         base = Path(temp)
+
+        unicode_repo = base / "项目-Δ"
+        unicode_repo.mkdir()
+        unicode_audit = json.loads(run(AUDIT, str(unicode_repo), "--format", "json").stdout)
+        assert Path(unicode_audit["root"]) == unicode_repo.resolve()
 
         green = base / "greenfield"
         green.mkdir()
@@ -51,6 +84,7 @@ def main() -> int:
         assert "Preview only" in preview.stdout
         assert not (green / "AGENTS.md").exists()
         run(SCAFFOLD, str(green), "--mode", "greenfield", "--knowledge-profile", "full", "--apply")
+        assert '\n    "setup": []' in (green / ".ai/harness.json").read_text(encoding="utf-8")
         for tracked in (
             "docs/plans/active/README.md", "docs/plans/completed/README.md",
             ".agents/skills/README.md", ".claude/skills/README.md",
@@ -226,6 +260,20 @@ def main() -> int:
         assert "COMMAND_EXECUTION" in execution_report.stdout and "Traceback" not in execution_report.stderr, execution_report.stdout
         write_json(manifest_path, json.loads((green / ".ai/harness.json").read_text(encoding="utf-8")))
 
+        sensitive_command = json.loads((green / ".ai/harness.json").read_text(encoding="utf-8"))
+        sensitive_command["commands"] = {
+            "test": [
+                {"argv": ["example-tool", "--password", "do-not-print-this"], "required": True},
+                {"argv": ["example-tool", "--api-key=also-do-not-print-this"], "required": True},
+            ]
+        }
+        write_json(manifest_path, sensitive_command)
+        sensitive_report = run(VALIDATE, str(brown), expected=1)
+        assert "COMMAND_SECRET_ARGUMENT" in sensitive_report.stdout
+        assert "do-not-print-this" not in sensitive_report.stdout
+        assert "also-do-not-print-this" not in sensitive_report.stdout
+        write_json(manifest_path, json.loads((green / ".ai/harness.json").read_text(encoding="utf-8")))
+
         active_plan = brown / "docs/plans/active/duplicate.md"
         completed_plan = brown / "docs/plans/completed/duplicate.md"
         plan_body = (brown / "docs/plans/TEMPLATE.md").read_text(encoding="utf-8").replace("Status: active", "Status: complete")
@@ -345,6 +393,27 @@ def main() -> int:
             symlink_report = run(sync, str(brown), "--apply", expected=1)
             assert "contains a symlink" in symlink_report.stdout
             symlink.unlink()
+
+        guarded = base / "guarded-sync"
+        guarded.mkdir()
+        run(SCAFFOLD, str(guarded), "--mode", "greenfield", "--apply")
+        guarded_skill = guarded / ".agents/skills/example"
+        guarded_skill.mkdir()
+        (guarded_skill / "SKILL.md").write_text(
+            "---\nname: example\ndescription: Guarded repository workflow.\n---\n", encoding="utf-8"
+        )
+        outside_claude = base / "outside-claude"
+        outside_claude.mkdir()
+        shutil.rmtree(guarded / ".claude")
+        link_created = create_directory_link(guarded / ".claude", outside_claude)
+        if os.name == "nt":
+            assert link_created, "Windows junction creation should be available for the destination guard test"
+        if link_created:
+            guarded_report = run(
+                guarded / "tools/ai/sync_skill_adapters.py", str(guarded), "--apply", expected=1
+            )
+            assert "ancestor is a symlink or junction" in guarded_report.stdout
+            assert not (outside_claude / "skills/example").exists()
         for path in (portable / "SKILL.md", mirror_skill):
             path.write_text(path.read_text(encoding="utf-8"), encoding="utf-8", newline="\r\n")
         run(VALIDATE, str(brown))
@@ -459,10 +528,14 @@ def main() -> int:
         (brown / "AGENTS.md").write_text(original_guidance + "\n" + "extra\n" * 130, encoding="utf-8")
         failed = run(VALIDATE, str(brown), expected=1)
         assert "GUIDANCE_BLOAT" in failed.stdout
+        assert not list(base.rglob("__pycache__"))
 
     print("self-test: PASS")
     return 0
 
 
 if __name__ == "__main__":
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
     raise SystemExit(main())

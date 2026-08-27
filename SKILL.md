@@ -72,7 +72,7 @@ Place each fact in exactly one primary surface:
 ### 5. Validate and forward-test
 
 - Run `scripts/validate_project.py <repo>`.
-- Run with `--run-commands` only after reviewing registered commands.
+- Treat registered commands as repository code. Run with `--run-commands` only after reviewing every executable, argument, working directory, and side effect.
 - Test one representative onboarding question, one small change, and one interrupted/resumed task with a fresh agent context.
 - Convert repeated failures into a better map, tool, check, or scoped skill. Do not respond by expanding the root instruction file reflexively.
 

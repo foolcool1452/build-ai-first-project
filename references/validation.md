@@ -55,6 +55,7 @@ The validator exits nonzero on errors. Use `--strict` to promote warnings for ma
 
 - commands are argument arrays, never shell strings;
 - executable and path arguments are repository-relative or tool names, never machine-specific absolute paths;
+- sensitive values are not command arguments; use environment or credential-provider configuration;
 - working directories stay within the repository (`.` by default);
 - timeouts are positive and bounded (900 seconds by default);
 - strict validation requires at least one command marked `required: true`, even if the configured check list omits command execution.
@@ -72,7 +73,7 @@ The readiness audit reports evidence and routing heuristics, not a substitute fo
 
 ## Command checks
 
-`--run-commands` runs registered commands without a shell, using each command's `argv`, `cwd`, and timeout. Review the manifest before enabling this option. Do not automatically run deploy, release, migration, destructive, or production commands.
+`--run-commands` runs reviewed registered commands without a shell, using each command's `argv`, `cwd`, and timeout. The absence of a shell prevents shell-string expansion but does not make an arbitrary executable safe. Treat commands from an untrusted repository exactly like build scripts: review the manifest and referenced executables before enabling this option. Do not automatically run deploy, release, migration, destructive, or production commands.
 
 Recommended order:
 
