@@ -31,6 +31,8 @@
         "index": {"type": "string", "minLength": 1},
         "architecture": {"type": "string", "minLength": 1},
         "product": {"type": "string", "minLength": 1},
+        "agents": {"type": "string", "minLength": 1},
+        "tasks": {"type": "string", "minLength": 1},
         "plans": {"type": "string", "minLength": 1},
         "operations": {"type": "string", "minLength": 1},
         "quality": {"type": "string", "minLength": 1},

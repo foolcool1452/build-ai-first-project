@@ -6,7 +6,8 @@
 2. Brownfield workflow
 3. Change workflow
 4. Recovery and handoff
-5. Continuous gardening
+5. Multi-agent collaboration
+6. Continuous gardening
 
 ## Greenfield workflow
 
@@ -95,6 +96,28 @@ On pause or context loss, update the active plan with:
 - blockers requiring judgment.
 
 Do not create a separate `HANDOFF.md` when the active plan already owns this state. Do not commit raw session logs or credentials.
+
+## Multi-agent collaboration
+
+Usually one agent works at a time; the registry and task boards make identity, presence, and division of labor visible so any session can orient without hidden knowledge.
+
+**Session lifecycle**
+
+1. On the first session in a project, register in `docs/agents/REGISTRY.md` (one `## <agent-id>` section) and create `docs/tasks/<agent-id>.md`.
+2. At session start, set your `Status: active` and refresh `Last active`.
+3. While working, keep lightweight todos on your board; reference cross-session plans rather than duplicating them.
+4. At session end or context handoff, set `Status: idle`, update `Last active`, and leave the board consistent with the active plan's state.
+5. When a phase ends, groom boards: archive finished items to `docs/tasks/archive/<YYYY-MM-DD>-<agent-id>.md` (default) or delete them if the team prefers no history.
+
+**Ownership rules (advisory)**
+
+- Task-board ownership is a display convention. Any registered agent may work any item; note the takeover on your own board so history stays legible.
+- Never edit another agent's registry section except to retire it after explicit handover; update only your own entry.
+- Retired agents keep their sections and archives as history; their boards may be deleted at grooming time.
+
+**Division of responsibility**: plans answer "what is being changed and why", the registry answers "who is here and in what state", boards answer "what small items are queued". If a board item grows plan-worthy, promote it instead of fattening the board.
+
+When omitting both branches from a project, remove the declarations from `.ai/harness.json`, delete `docs/agents/` and `docs/tasks/`, and drop the routing rows that referenced them.
 
 ## Continuous gardening
 

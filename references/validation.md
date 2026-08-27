@@ -24,6 +24,7 @@ The validator exits nonzero on errors. Use `--strict` to promote warnings for ma
 - manifest paths are relative, remain inside the repository, and resolve when required.
 - schema version and supported persistence model are valid.
 - core knowledge paths (`index`, `architecture`, and `product`) exist; optional branches are checked only when declared.
+- the collaboration surfaces (`knowledge.agents` registry, `knowledge.tasks` directory) are declared and validated by default in scaffolded projects.
 
 ### Guidance budget
 
@@ -40,7 +41,7 @@ The validator exits nonzero on errors. Use `--strict` to promote warnings for ma
 
 ### Knowledge integrity
 
-- local Markdown links resolve.
+- local Markdown links resolve; links inside fenced code blocks are ignored.
 - canonical current-state files include `Status`, `Last verified`, and `Sources` metadata.
 - generated docs declare their generator or generation command.
 - verification dates older than `validation.freshnessDays` warn rather than silently becoming truth.
@@ -50,6 +51,17 @@ The validator exits nonzero on errors. Use `--strict` to promote warnings for ma
 - every active plan contains Goal, Scope and non-goals, Progress, Decisions, Verification, Risks and blockers, and Next action.
 - completed plans are not left under `active/`.
 - explicit `Plan ID:` values are unique where they are used; local links are covered by the Markdown check.
+
+### Agent coordination
+
+Checked when `validation.requiredChecks` includes `agents` (the scaffolded default):
+
+- declared `knowledge.agents` registry and `knowledge.tasks` directory paths exist;
+- registry sections use unique single-token `## <agent-id>` ids, case-insensitively (`AGENT_ID_DUPLICATE` error) with `- Model`, `- Joined`, `- Status`, `- Last active` fields present (`AGENT_FIELD` error);
+- status vocabulary is `active` / `idle` / `retired` (`AGENT_STATUS` error); dates use YYYY-MM-DD, parse as calendar dates, and stay in the past (`AGENT_DATE` error);
+- `- Last active` older than the freshness window warns (`AGENT_STALE`) rather than silently becoming truth;
+- task boards whose file stem matches no registered agent warn (`TASK_BOARD_UNREGISTERED`); archive files not named `<YYYY-MM-DD>-<agent-id>.md` warn (`ARCHIVE_NAME`);
+- ownership stays advisory: the check enforces structure only, never locking or territory.
 
 ### Manifest commands
 

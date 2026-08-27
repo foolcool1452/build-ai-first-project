@@ -31,10 +31,10 @@ from sync_skill_adapters import (
 
 SUPPORTED_CHECKS = {
     "structure", "guidance-budget", "adapter-consistency", "links", "metadata",
-    "plan-state", "commands", "architecture",
+    "plan-state", "agents", "commands", "architecture",
 }
 HARNESS_SCHEMA_REFERENCE = "./harness.schema.json"
-HARNESS_SCHEMA_FINGERPRINT = "3ef8779fe887a0ae16ba0041f04b7619ff997e1750cd5a4a3abf85f4bf925701"
+HARNESS_SCHEMA_FINGERPRINT = "b54b9a41b7a5ccea595cf6f35d35511028e215fb9ba737229224f640b8496a75"
 COMMAND_ORDER = ("architecture", "docs", "test", "lint", "typecheck", "build")
 PLAN_HEADINGS = (
     "Goal", "Scope and non-goals", "Progress", "Decisions", "Verification",
@@ -42,6 +42,8 @@ PLAN_HEADINGS = (
 )
 CANONICAL_STATUSES = {"verified", "observed", "proposed", "generated"}
 ACTIVE_PLAN_STATUSES = {"active", "blocked", "paused"}
+AGENT_STATUSES = {"active", "idle", "retired"}
+TASK_BOARD_IGNORES = {"readme.md", "template.md"}
 SKIP_LINK_DIRS = {".git", "node_modules", "vendor", "dist", "build", "target", ".venv", "venv"}
 SECRET_ASSIGNMENT_RE = re.compile(
     r"(?ix)"
@@ -103,6 +105,19 @@ def is_absolute_argument(value: str) -> bool:
         or PureWindowsPath(value).is_absolute()
         or value.startswith(("~/", "~\\"))
     )
+
+
+def fenced_lines(text: str) -> set[int]:
+    """Line numbers (1-based) inside fenced code blocks, for link scanning."""
+    fenced: set[int] = []
+    inside = False
+    for number, line in enumerate(text.splitlines(), start=1):
+        if line.lstrip().startswith("```"):
+            inside = not inside
+            continue
+        if inside:
+            fenced.append(number)
+    return set(fenced)
 
 
 def schema_violations(value: Any, schema: dict[str, Any], location: str = "$") -> list[str]:
@@ -258,7 +273,7 @@ class Validator:
         if isinstance(knowledge, dict):
             for key in ("index", "architecture", "product"):
                 self.repo_path(knowledge.get(key), f"KNOWLEDGE_{key.upper()}")
-            for key in ("plans", "operations", "quality", "generated"):
+            for key in ("plans", "operations", "quality", "generated", "agents", "tasks"):
                 if key in knowledge:
                     self.repo_path(knowledge.get(key), f"KNOWLEDGE_{key.upper()}")
         validation = self.manifest.get("validation")
@@ -435,14 +450,26 @@ class Validator:
 
         for path in self.markdown_files():
             text = path.read_text(encoding="utf-8", errors="replace")
+            in_fence = fenced_lines(text)
+
+            def line_of(offset: int) -> int:
+                return text.count("\n", 0, offset) + 1
+
             definitions: dict[str, str] = {}
-            for label, angle, plain in definition_re.findall(text):
-                target = angle or plain
-                definitions[normalized_label(label)] = target
-                check_target(path, target)
+            for match in definition_re.finditer(text):
+                if line_of(match.start()) in in_fence:
+                    continue
+                label, angle, plain = match.groups()
+                definitions[normalized_label(label)] = angle or plain
+                check_target(path, angle or plain)
             for match in inline_re.finditer(text):
+                if line_of(match.start()) in in_fence:
+                    continue
                 check_target(path, match.group("angle") or match.group("plain"))
-            for label, reference in use_re.findall(text):
+            for match in use_re.finditer(text):
+                if line_of(match.start()) in in_fence:
+                    continue
+                label, reference = match.group(1), match.group(2)
                 key = normalized_label(reference or label)
                 if key not in definitions:
                     self.add("error", "UNDEFINED_LINK_REFERENCE", f"Undefined Markdown link reference: {reference or label}", path)
@@ -566,6 +593,132 @@ class Validator:
                 self.add("error", "PLAN_STATUS", "Active plan is missing Status metadata.", path)
             elif status.group(1).lower() not in ACTIVE_PLAN_STATUSES:
                 self.add("error", "PLAN_STATUS", f"Invalid active plan status: {status.group(1)}", path)
+
+    @staticmethod
+    def agent_sections(registry_text: str) -> list[tuple[str, str]]:
+        """Collect single-token '## <agent-id>' sections, skipping fenced code."""
+        sections: list[tuple[str, str]] = []
+        fenced = False
+        current_id: str | None = None
+        body: list[str] = []
+        for line in registry_text.splitlines():
+            if line.lstrip().startswith("```"):
+                fenced = not fenced
+                continue
+            if fenced:
+                if current_id is not None:
+                    body.append(line)
+                continue
+            heading = re.match(r"^##\s+(\S+)\s*$", line)
+            if heading:
+                if current_id is not None:
+                    sections.append((current_id, "\n".join(body)))
+                current_id = heading.group(1)
+                body = []
+            elif current_id is not None:
+                body.append(line)
+        if current_id is not None:
+            sections.append((current_id, "\n".join(body)))
+        return sections
+
+    def parsed_agent_date(self, raw: str, code: str, field: str, path: Path) -> date | None:
+        value = raw.strip().strip("`")
+        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
+            self.add("error", code, f"{field} must use YYYY-MM-DD.", path)
+            return None
+        try:
+            return datetime.strptime(value, "%Y-%m-%d").date()
+        except ValueError:
+            self.add("error", code, f"{field} is not a valid calendar date: {value}", path)
+            return None
+
+    def check_agents(self):
+        knowledge = self.manifest.get("knowledge", {})
+        if not isinstance(knowledge, dict):
+            return
+        validation = self.manifest.get("validation")
+        freshness = validation.get("freshnessDays", 90) if isinstance(validation, dict) else 90
+        if not isinstance(freshness, int) or freshness < 1:
+            freshness = 90
+
+        registry_value = knowledge.get("agents")
+        registered: dict[str, Path] = {}
+        if registry_value is not None:
+            registry = self.repo_path(registry_value, "AGENTS_REGISTRY_PATH", required=False)
+            if registry is not None and registry.is_file():
+                text = registry.read_text(encoding="utf-8", errors="replace")
+                seen: dict[str, Path] = {}
+                for agent_id, body in self.agent_sections(text):
+                    key = agent_id.lower()
+                    if key in seen:
+                        self.add(
+                            "error", "AGENT_ID_DUPLICATE",
+                            f"Agent id '{agent_id}' appears more than once in the registry "
+                            "(ids must be unique, case-insensitively).",
+                            registry,
+                        )
+                        continue
+                    seen[key] = registry
+                    registered[key] = registry
+                    fields = {}
+                    for name in ("Model", "Joined", "Status", "Last active"):
+                        field_match = re.search(rf"(?mi)^-\s*{name}:\s*(.*?)\s*$", body)
+                        if field_match is not None and field_match.group(1):
+                            fields[name] = field_match.group(1)
+                    missing = [name for name in ("Model", "Joined", "Status", "Last active") if name not in fields]
+                    if missing:
+                        self.add("error", "AGENT_FIELD", f"Agent '{agent_id}' is missing required field(s): {', '.join(missing)}.", registry)
+                    status = fields.get("Status")
+                    if status is not None and status.strip().lower() not in AGENT_STATUSES:
+                        self.add(
+                            "error", "AGENT_STATUS",
+                            f"Agent '{agent_id}' has invalid Status '{status}'; use one of: {', '.join(sorted(AGENT_STATUSES))}.",
+                            registry,
+                        )
+                    joined = self.parsed_agent_date(fields["Joined"], "AGENT_DATE", "Joined", registry) if "Joined" in fields else None
+                    last_active_raw = fields.get("Last active")
+                    last_active = None
+                    if last_active_raw is not None:
+                        last_active = self.parsed_agent_date(last_active_raw, "AGENT_DATE", "Last active", registry)
+                    today = date.today()
+                    if joined is not None and joined > today:
+                        self.add("error", "AGENT_DATE", f"Agent '{agent_id}' Joined date is in the future.", registry)
+                    if last_active is not None and last_active > today:
+                        self.add("error", "AGENT_DATE", f"Agent '{agent_id}' Last active date is in the future.", registry)
+                    elif last_active is not None and (today - last_active).days > freshness:
+                        self.add(
+                            "warning", "AGENT_STALE",
+                            f"Agent '{agent_id}' was last active {(today - last_active).days} days ago; set Status to idle/retired or refresh the date.",
+                            registry,
+                        )
+
+        tasks_value = knowledge.get("tasks")
+        if tasks_value is None:
+            return
+        tasks_dir = self.repo_path(tasks_value, "TASKS_PATH", required=False)
+        if tasks_dir is None or not tasks_dir.is_dir():
+            return
+        for path in sorted(tasks_dir.glob("*.md")):
+            if path.name.lower() in TASK_BOARD_IGNORES:
+                continue
+            agent_key = path.stem.lower()
+            if agent_key not in registered:
+                self.add(
+                    "warning", "TASK_BOARD_UNREGISTERED",
+                    f"Task board '{path.name}' has no matching agent section in the registry; add an entry to docs/agents/REGISTRY.md or remove the board.",
+                    path,
+                )
+        archive = tasks_dir / "archive"
+        if archive.is_dir():
+            for path in sorted(archive.glob("*.md")):
+                if path.name.lower() in TASK_BOARD_IGNORES:
+                    continue
+                if not re.fullmatch(r"\d{4}-\d{2}-\d{2}-\S+", path.stem):
+                    self.add(
+                        "warning", "ARCHIVE_NAME",
+                        f"Archive file should be named <YYYY-MM-DD>-<agent-id>.md; found '{path.name}'.",
+                        path,
+                    )
 
     def normalized_commands(self) -> dict[str, list[dict[str, Any]]]:
         block = self.manifest.get("commands", {})
@@ -732,6 +885,8 @@ class Validator:
             self.check_metadata()
         if "plan-state" in checks:
             self.check_plans()
+        if "agents" in checks:
+            self.check_agents()
         commands = self.check_commands() if self.strict or "commands" in checks or "architecture" in checks or run_commands else {}
         if "architecture" in checks:
             self.check_architecture(commands)

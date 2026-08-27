@@ -14,6 +14,8 @@
 - Product intent: `docs/product/index.md`
 - Current architecture: `ARCHITECTURE.md` and `docs/architecture/index.md`
 - Durable decisions: `docs/architecture/decisions/`
+- Agent roster: `docs/agents/REGISTRY.md`
+- Agent task boards: `docs/tasks/` (ownership is advisory; archive at phase end)
 {{OPTIONAL_PROJECT_MAP}}
 - Canonical repo-local skills: `.agents/skills/`; generated Claude mirrors: `.claude/skills/`
 
@@ -29,6 +31,7 @@
 ## Working workflow
 
 {{OPTIONAL_PLAN_WORKFLOW}}
+- At session start, mark yourself active in `docs/agents/REGISTRY.md` and set it back to idle when finishing; create your task board under `docs/tasks/` if needed.
 - Record discoveries in the closest artifact, then reconcile product intent, architecture, decisions, tests, and generated docs before completion.
 - Run targeted checks first and the required manifest commands before declaring completion.
 - After changing `.agents/skills/`, follow `.agents/skills/README.md`.

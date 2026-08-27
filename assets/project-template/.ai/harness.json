@@ -16,7 +16,9 @@
   "knowledge": {
     "index": "docs/INDEX.md",
     "architecture": "ARCHITECTURE.md",
-    "product": "docs/product/index.md"{{OPTIONAL_KNOWLEDGE}}
+    "product": "docs/product/index.md",
+    "agents": "docs/agents/REGISTRY.md",
+    "tasks": "docs/tasks"{{OPTIONAL_KNOWLEDGE}}
   },
   "commands": {{COMMANDS_JSON}},
   "validation": {
@@ -28,6 +30,7 @@
       "links",
       "metadata",
       "plan-state",
+      "agents",
       "commands",
       "architecture"
     ]

@@ -40,6 +40,11 @@ repo/
 |   |-- INDEX.md                    # knowledge routing table
 |   |-- product/
 |   |   `-- index.md                # product intent and acceptance vocabulary
+|   |-- agents/
+|   |   `-- REGISTRY.md             # roster: who joined, status, focus, board link
+|   |-- tasks/
+|   |   |-- <agent-id>.md           # per-agent todo boards; ownership advisory
+|   |   `-- archive/                # phase-end grooming output
 |   |-- architecture/
 |   |   |-- index.md                # detailed current architecture
 |   |   `-- decisions/              # durable rationale, one decision per file
@@ -109,6 +114,19 @@ Use plans only for changes that cross sessions, components, or review checkpoint
 
 Update the plan during work. When complete, preserve durable rationale in an ADR or canonical doc; then archive or delete the plan according to the chosen persistence model.
 
+### Agent registry and task boards
+
+`docs/agents/REGISTRY.md` records who has worked in the repository: one `## <agent-id>` section per agent with single-token ids and fields `- Model`, `- Joined: YYYY-MM-DD`, `- Status` (`active`, `idle`, or `retired`), `- Last active: YYYY-MM-DD`, `- Focus`, `- Task board`, `- Notes`. Set `Status: active` at session start and back to `idle` when finishing; `Last active` older than the freshness window warns via validation.
+
+Coordination is advisory by design — nothing locks a file or reserves work:
+
+- one lightweight board per registered agent at `docs/tasks/<agent-id>.md`, split into `In progress` and `Done this phase`;
+- any registered agent may pick up another's item; note the handover on their own board;
+- multi-session work belongs in `docs/plans/active/`; boards reference it rather than duplicating it;
+- when a phase ends, groom boards: move finished items to `archive/<YYYY-MM-DD>-<agent-id>.md` (default) or delete them if the team prefers no history, and reset each board's done section.
+
+The validator enforces structure (unique ids, status vocabulary, date formats), not territory. A project may omit both branches by removing the declarations from `.ai/harness.json`, deleting the directories, and dropping the routing rows that pointed at them.
+
 ### Generated documentation
 
 Generated files must state their generator and source inputs. Validation should fail when checked-in generated output differs from regeneration, when practical.
@@ -125,7 +143,7 @@ Generated files must state their generator and source inputs. Validation should 
 
 Keep `$schema` fixed at `./harness.schema.json`; schema version 1 has one structural contract, and the validator checks its canonical fingerprint before trusting it.
 
-The `knowledge.index`, `knowledge.architecture`, and `knowledge.product` paths are core. `plans`, `operations`, `quality`, and `generated` are optional; declare them only when the project uses those branches. The routing index must identify intentional omissions.
+The `knowledge.index`, `knowledge.architecture`, and `knowledge.product` paths are core. `knowledge.agents` and `knowledge.tasks` (the collaboration surfaces) are declared by default in the scaffolded manifest; `plans`, `operations`, `quality`, and `generated` are optional. Declare a path only when the project uses that branch, and keep the routing index consistent with intentional omissions.
 
 Do not put secrets, credentials, user-specific absolute paths, or shell pipelines in the manifest.
 

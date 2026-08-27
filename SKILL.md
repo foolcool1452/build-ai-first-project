@@ -1,6 +1,6 @@
 ---
 name: build-ai-first-project
-description: Audit, initialize, or retrofit software repositories so Codex, Claude Code, Kimi Code, and other coding agents can understand, modify, verify, and hand off the project reliably. Use for new-project scaffolding, brownfield AI-readiness migration, AGENTS.md or CLAUDE.md redesign, agent-facing documentation architecture, specification and execution-plan workflows, executable guardrails, repository continuity, or validation of an existing AI-first project harness.
+description: Audit, initialize, or retrofit software repositories so Codex, Claude Code, Kimi Code, and other coding agents can understand, modify, verify, and hand off the project reliably. Use for new-project scaffolding, brownfield AI-readiness migration, AGENTS.md or CLAUDE.md redesign, agent-facing documentation architecture, specification and execution-plan workflows, multi-agent coordination (agent registry, task boards, handoff), executable guardrails, repository continuity, or validation of an existing AI-first project harness.
 ---
 
 # Build AI-First Project
@@ -50,6 +50,7 @@ Place each fact in exactly one primary surface:
 - Current architecture map -> `ARCHITECTURE.md` and `docs/architecture/`.
 - Durable rationale -> architecture decision record.
 - Multi-step change state -> `docs/plans/active/`.
+- Agent identity and presence -> `docs/agents/REGISTRY.md`; lightweight per-agent todos -> `docs/tasks/` (ownership is advisory; see `references/workflows.md`).
 - Repeatable procedure -> repo-local skill or `docs/workflows/`.
 - Mechanically decidable rule -> executable check.
 - Derived fact -> generated documentation; do not hand-edit it.
@@ -86,6 +87,7 @@ Finish only when:
 - canonical knowledge files are linked and have verification metadata;
 - setup and verification commands are recorded and at least the safe relevant subset has passed;
 - active plans use the required resumability fields;
+- the agent registry and task boards, when present, pass the `agents` validation check;
 - no pre-existing project file was silently replaced;
 - brownfield claims distinguish observed facts from intended changes;
 - the audit and validation reports identify remaining gaps explicitly.

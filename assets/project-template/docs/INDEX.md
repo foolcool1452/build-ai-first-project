@@ -11,6 +11,8 @@ Sources: `.ai/harness.json` and linked repository artifacts
 | Intended product behavior | [Product contract](product/index.md) |
 | Current system structure | [System map](../ARCHITECTURE.md) and [architecture details](architecture/index.md) |
 | Why a durable decision was made | [Decision records](architecture/decisions/) |
+| Who works here and their status | [Agent registry](agents/REGISTRY.md) |
+| Lightweight per-agent todos | [Task boards](tasks/) |
 {{OPTIONAL_ROUTING_ROWS}}
 
 ## Reading rule

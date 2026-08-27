@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from datetime import date, timedelta
 from pathlib import Path
 
 
@@ -431,6 +432,89 @@ def main() -> int:
         assert "CLAUDE_SKILL_ORPHAN" in orphan_validation.stdout
         run(sync, str(brown), "--prune")
         assert not (brown / ".claude/skills/orphan").exists()
+
+        registry = brown / "docs/agents/REGISTRY.md"
+        assert registry.is_file()
+        tasks_dir = brown / "docs/tasks"
+        today = date.today().isoformat()
+        stale_day = (date.today() - timedelta(days=200)).isoformat()
+        last_active_value = today
+
+        def write_registry(text: str) -> None:
+            registry.write_text(text + "\n", encoding="utf-8", newline="\n")
+
+        def valid_agent_text(status_value: str, last_active_value_arg: str) -> str:
+            return (
+                "# Agent Registry\n\n"
+                "## atlas\n\n"
+                f"- Model: example-model\n- Joined: {today}\n- Status: {status_value}\n"
+                f"- Last active: {last_active_value_arg}\n\n"
+            )
+
+        write_registry(valid_agent_text("active", today))
+        (tasks_dir / "atlas.md").write_text(
+            "# Tasks: atlas\n\nLast updated: " + today + "\n\n## In progress\n\n- [ ] demo item\n",
+            encoding="utf-8", newline="\n",
+        )
+        run(VALIDATE, str(brown))
+
+        write_registry(valid_agent_text("active", today) + valid_agent_text("active", today).replace("## atlas", "## Atlas"))
+        duplicate_report = run(VALIDATE, str(brown), expected=1)
+        assert "AGENT_ID_DUPLICATE" in duplicate_report.stdout
+        write_registry(valid_agent_text("haunted", today))
+        status_report = run(VALIDATE, str(brown), expected=1)
+        assert "AGENT_STATUS" in status_report.stdout
+        bad_joined = valid_agent_text("active", today).replace(f"- Joined: {today}", "- Joined: 2026/08/01")
+        write_registry(bad_joined)
+        date_report = run(VALIDATE, str(brown), expected=1)
+        assert "AGENT_DATE" in date_report.stdout
+        future_last = valid_agent_text("active", "tomorrow")
+        write_registry(future_last)
+        future_report = run(VALIDATE, str(brown), expected=1)
+        assert "AGENT_DATE" in future_report.stdout
+        write_registry(valid_agent_text("active", stale_day))
+        stale_report = run(VALIDATE, str(brown))
+        assert "AGENT_STALE" in stale_report.stdout
+        write_registry(valid_agent_text("active", stale_day).replace("- Model: example-model\n", ""))
+        missing_field = run(VALIDATE, str(brown), expected=1)
+        assert "AGENT_FIELD" in missing_field.stdout
+        write_registry(valid_agent_text("active", stale_day))
+        (tasks_dir / "ghost.md").write_text("# Tasks: ghost\n", encoding="utf-8", newline="\n")
+        ghost_report = run(VALIDATE, str(brown))
+        assert "TASK_BOARD_UNREGISTERED" in ghost_report.stdout
+        (tasks_dir / "ghost.md").unlink()
+        archive_note = tasks_dir / "archive" / "atlas-notes.md"
+        archive_note.write_text("historical items\n", encoding="utf-8", newline="\n")
+        archive_report = run(VALIDATE, str(brown))
+        assert "ARCHIVE_NAME" in archive_report.stdout
+        archive_note.unlink()
+
+        baseline_manifest_obj = json.loads(manifest_path.read_text(encoding="utf-8"))
+        omitting = json.loads(json.dumps(baseline_manifest_obj))
+        for key in ("agents", "tasks"):
+            omitting["knowledge"].pop(key)
+        write_json(manifest_path, omitting)
+        index_path = brown / "docs/INDEX.md"
+        index_lines = index_path.read_text(encoding="utf-8").splitlines()
+        index_path.write_text(
+            "\n".join(
+                line for line in index_lines
+                if not any(token in line for token in ("(agents/", "(tasks/"))
+            ) + "\n",
+            encoding="utf-8", newline="\n",
+        )
+        shutil.rmtree(tasks_dir)
+        shutil.rmtree(registry.parent)
+        run(VALIDATE, str(brown))
+
+        # Restore a valid coordination surface so later scenarios keep passing.
+        write_json(manifest_path, json.loads((green / ".ai/harness.json").read_text(encoding="utf-8")))
+        registry.parent.mkdir(parents=True, exist_ok=True)
+        write_registry(valid_agent_text("idle", today))
+        tasks_dir.mkdir(parents=True, exist_ok=True)
+
+
+
 
         monorepo = base / "monorepo"
         component = monorepo / "packages/api"
