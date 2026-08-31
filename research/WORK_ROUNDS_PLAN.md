@@ -1,6 +1,6 @@
 # Plan: optional work rounds with subagent rules
 
-Status: complete
+Status: complete — superseded by WORK_ROUNDS_V2_DESIGN.md (verification-first entry format; in-session loop retained per user decision)
 Last verified: 2026-08-31
 Sources: user requirement ("research → execute → subagent review, repeatable, then maintain docs"; subagents must not be abused; subagents are not required to be read-only), `research/V3_DESIGN.md`, industry evidence in the 2026-08 research report
 

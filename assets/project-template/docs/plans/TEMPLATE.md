@@ -35,19 +35,23 @@ State one safe, concrete next action.
 
 ## Rounds
 
-Optional work-round log. One entry per research → execute → review cycle;
-repeat execute/review as needed, then reconcile docs before closing.
-Subagents may research, review, and write under this session's identity —
-partition parallel writers by file or region, keep to the default budget of
-one research + one review subagent (justify more here), and give reviewers
-only the goal, the combined diff, and the evidence. Every review finding is
-accepted or rejected with a reason.
+Optional work-round log. One entry per research → execute → verify → review
+cycle; repeat until convergence, then reconcile docs and close. Subagents may
+research, review, and write under this session's identity — partition parallel
+writers by file or region, keep to the default budget of one research + one
+review subagent, and give reviewers only the goal, the combined diff, the
+evidence, and the Verify command. Every review finding is accepted or rejected
+with a reason.
 
 ### Round 1 — {{DATE}} — <goal>
 
-- Research: findings or decision; subagents used: N (why).
-- Execute: what changed; evidence.
-- Review: findings; each accepted or rejected with a reason.
-- Over-budget subagents: justification, or "none".
-- Docs: what was reconciled, or "no reconciliation needed".
+- Verify: <command that proves this round is done; committed before changes>.
+- Research: findings or decision; subagents used: N (over-budget justification
+  goes here).
+- Execute: what changed; evidence; writer partition if subagents wrote in
+  parallel.
+- Review: findings; each accepted or rejected with a reason; reviewer re-ran
+  Verify.
+- Close: docs reconciled or "none"; "suspended" while in progress; or
+  "closed".
 

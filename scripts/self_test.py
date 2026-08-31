@@ -151,6 +151,7 @@ def main() -> int:
             assert (green / tracked).is_file(), tracked
         plan_template_text = (green / "docs/plans/TEMPLATE.md").read_text(encoding="utf-8")
         assert "## Rounds" in plan_template_text and "### Round 1" in plan_template_text
+        assert "- Verify:" in plan_template_text
         for removed in (".ai/harness.schema.json", "docs/quality/QUALITY.md", "docs/operations/index.md"):
             assert not (green / removed).exists(), removed
         full_guidance = (green / "AGENTS.md").read_text(encoding="utf-8")
