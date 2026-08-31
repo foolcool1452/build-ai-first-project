@@ -21,10 +21,10 @@ The validator exits nonzero on errors. Use `--strict` to promote warnings for ma
 ### Structure
 
 - `.ai/harness.json` exists and the declared guidance entrypoint, architecture path, and knowledge index exist (a renamed entrypoint shifts what is checked, not a literal `AGENTS.md` name).
-- manifest structure is enforced by hand-written contract checks (`MANIFEST_CONTRACT` findings name the violated field): `schemaVersion` is the integer 1, `project` carries a valid adoption mode and persistence model, `guidance`/`knowledge`/`commands`/`validation` have the required shapes.
+- manifest structure is enforced by hand-written contract checks (`MANIFEST_CONTRACT` findings name the violated field): `schemaVersion` is the integer 1, `project` carries a valid adoption mode and persistence model plus an optional `harnessProfile` of `lite` or `full`, and `guidance`/`knowledge`/`commands`/`validation` have the required shapes. Full must declare plans, agents, tasks, and both matching checks; a lite manifest with that complete shape warns as `PROFILE_DRIFT`.
 - manifest paths are relative, remain inside the repository, and resolve when required.
 - core knowledge paths (`index`, `architecture`, and `product`) exist; optional branches are checked only when declared.
-- the collaboration surfaces (`knowledge.agents` registry, `knowledge.tasks` directory) are declared and validated by default in scaffolded projects.
+- the full profile declares collaboration surfaces (`knowledge.agents` registry, `knowledge.tasks` directory); the lite profile omits them. Optional branches are validated whenever declared and their checks are enabled.
 
 ### Guidance budget
 
@@ -44,7 +44,7 @@ The validator exits nonzero on errors. Use `--strict` to promote warnings for ma
 - local Markdown links resolve; scanning ignores fenced code blocks (``` and ~~~) and tolerates a UTF-8 BOM. Four-space indented code blocks are *not* recognized — show link examples inside fences.
 - Windows drive-letter links (`C:/...`) always fail as `LINK_ESCAPE`: knowledge must travel with the repository.
 - canonical current-state files include `Status`, `Last verified`, and `Sources` metadata.
-- generated docs declare their generator or generation command.
+- generated docs *should* declare their generator or generation command — a project convention, not a validator-enforced rule.
 - verification dates must parse as YYYY-MM-DD and stay in the past; staleness itself is a review concern, not an enforced rule.
 
 ### Plan state
@@ -61,6 +61,7 @@ Checked when `validation.requiredChecks` includes `agents` (the scaffolded defau
 - registry sections use unique single-token `## <agent-id>` ids, case-insensitively (`AGENT_ID_DUPLICATE` error) with `- Model`, `- Joined`, `- Status`, `- Last active` fields present (`AGENT_FIELD` error);
 - status vocabulary is `active` / `idle` / `retired` (`AGENT_STATUS` error); dates use YYYY-MM-DD, parse as calendar dates, and stay in the past (`AGENT_DATE` error);
 - `- Last active` older than the freshness window warns (`AGENT_STALE`) rather than silently becoming truth;
+- the registry enforces a single writer session: two or more entries with `Status: active` fail (`AGENT_MULTIPLE_ACTIVE` error). Subagents of the active conversation and read-only review agents are not independent workers — they are not registered and never counted;
 - task boards whose file stem matches no registered agent warn (`TASK_BOARD_UNREGISTERED`); archive files not named `<YYYY-MM-DD>-<agent-id>.md` — including impossible calendar dates like `2026-99-99` — warn (`ARCHIVE_NAME`);
 - ownership stays advisory: the check enforces structure only, never locking or territory.
 
@@ -98,13 +99,13 @@ Exhaustive codes the universal validator can emit, grouped by check (severity):
 
 | Check | Codes |
 |---|---|
-| Manifest & structure | `MANIFEST_MISSING`/`MANIFEST_INVALID`/`MANIFEST_CONTRACT` (E); `UNKNOWN_CHECK` (E); `GUIDANCE_PATH`, `KNOWLEDGE_*`, `NESTED_SKILL_NOT_PORTABLE` (E) |
-| Guidance budget | `GUIDANCE_BLOAT` (E), `GUIDANCE_NEAR_BUDGET` >85% lines (W) |
-| Adapter consistency | `CLAUDE_ADAPTER_UNDECLARED` (W), `CLAUDE_IMPORT`/`CLAUDE_SYMLINK`/`CLAUDE_READ` (E), `CLAUDE_BLOAT` (W); skills: `CLAUDE_SKILL_ADAPTER`, `CLAUDE_SKILL_ORPHAN` (E) |
+| Manifest & structure | `MANIFEST_MISSING`/`MANIFEST_INVALID`/`MANIFEST_CONTRACT` (E); `UNKNOWN_CHECK` (E); `GUIDANCE_PATH`, `KNOWLEDGE_*`, `NESTED_SKILL_NOT_PORTABLE` (E); `PROFILE_DRIFT`, `PROFILE_PROMOTION_PENDING` (W) |
+| Guidance budget | `GUIDANCE_BLOAT` (E), `GUIDANCE_READ` (E), `GUIDANCE_NEAR_BUDGET` >85% lines (W) |
+| Adapter consistency | `ADAPTER_BLOCK` (E), `CLAUDE_ADAPTER_UNDECLARED` (W), `CLAUDE_IMPORT`/`CLAUDE_SYMLINK`/`CLAUDE_READ` (E), `CLAUDE_BLOAT` (W); skills: `CLAUDE_SKILL_ADAPTER`, `CLAUDE_SKILL_ORPHAN` (E) |
 | Links | `BROKEN_LINK`, `LINK_ESCAPE`, `UNDEFINED_LINK_REFERENCE` (E) |
 | Metadata | `METADATA_MISSING`, `METADATA_STATUS`, `VERIFICATION_DATE`, `FUTURE_VERIFICATION` (E); `PLACEHOLDER_CONTENT` (W) |
 | Plan state | `PLAN_FIELD`, `PLAN_STATUS`, `PLAN_ID_DUPLICATE` (E); `ACTIVE_PLANS_DIR` (W) |
-| Agent coordination | `AGENT_ID_DUPLICATE`, `AGENT_FIELD`, `AGENT_STATUS`, `AGENT_DATE` (E); `AGENT_STALE`, `TASK_BOARD_UNREGISTERED`, `ARCHIVE_NAME` (W) |
+| Agent coordination | `AGENT_ID_DUPLICATE`, `AGENT_FIELD`, `AGENT_STATUS`, `AGENT_DATE`, `AGENT_MULTIPLE_ACTIVE` (E); `AGENT_STALE`, `AGENT_FENCE_UNCLOSED`, `TASK_BOARD_UNREGISTERED`, `ARCHIVE_NAME` (W) |
 | Commands | `COMMAND_BLOCK/GROUP/SHAPE/ARGV/ARGV_LENGTH/ABSOLUTE_PATH/SECRET_ARGUMENT/CWD/CWD_TYPE/TIMEOUT/REQUIRED` (E); `COMMAND_GROUP_NEVER_RUNS`, `UNSAFE_COMMAND_GROUP` (W) |
 | Architecture | `ARCH_BLOCK`, `ARCH_NOT_ENFORCED` (E); `ARCH_OBSERVATIONAL` (W). Zone-graph validation is deliberately left to project-native linters |
 | Command execution (`--run-commands`) | records exit code and duration only — command output is discarded, not captured; failures surface as `COMMAND_FAILED`, `COMMAND_MISSING`, `COMMAND_TIMEOUT`, or `COMMAND_EXECUTION` with severity following each command's `required` flag |

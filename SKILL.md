@@ -1,6 +1,6 @@
 ---
 name: build-ai-first-project
-description: Audit, initialize, or retrofit software repositories so Codex, Claude Code, Kimi Code, and other coding agents can understand, modify, verify, and hand off the project reliably. Use for new-project scaffolding, brownfield AI-readiness migration, AGENTS.md or CLAUDE.md redesign, agent-facing documentation architecture, specification and execution-plan workflows, multi-agent coordination (agent registry, task boards, handoff), executable guardrails, repository continuity, or validation of an existing AI-first project harness.
+description: Audit, initialize, retrofit, or validate repositories for reliable AI-agent maintenance. Use for AI-readiness reviews, AGENTS.md or CLAUDE.md design, agent-facing knowledge architecture, specifications and execution plans, repo-local skills, multi-agent coordination, executable guardrails, and continuity across Codex, Claude Code, and Kimi Code.
 ---
 
 # Build AI-First Project
@@ -13,7 +13,7 @@ Use Python 3.11 or newer for the bundled audit, scaffold, sync, and validation s
 ## Choose the operation
 
 1. **Audit only**: Run `scripts/audit_project.py <repo>`. Do not modify the repository.
-2. **Initialize a new project**: Follow the greenfield workflow in `references/workflows.md`, preview with `scripts/scaffold_project.py <repo> --mode greenfield`, then rerun with `--apply` after review. Branches beyond the fixed landing set are created on first need and declared in `.ai/harness.json`.
+2. **Initialize a new project**: Follow the greenfield workflow in `references/workflows.md`, preview with `scripts/scaffold_project.py <repo> --mode greenfield --profile auto`, then rerun with `--apply` after reviewing the selected profile and file operations.
 3. **Retrofit an existing project**: Follow the brownfield workflow in `references/workflows.md`. Audit first, establish a passing baseline, preview `--mode brownfield`, and add constraints incrementally.
 4. **Validate or repair a harness**: Run `scripts/validate_project.py <repo>`. Read `references/validation.md` before changing severity, budgets, or freshness rules.
 
@@ -26,10 +26,11 @@ Read `references/target-architecture.md` before creating or reorganizing project
 - Never invent brownfield architecture. Record claims as `observed` with source paths until verified.
 - Preserve existing user files. Preview first, create missing files, and merge deliberately; never overwrite instruction, configuration, or documentation files silently.
 - Keep task procedures in on-demand skills or workflow documents, not always-loaded guidance.
-- Do not repeat formatter, linter, or type-checker rules in agent guidance unless the agent must know a non-obvious invocation or exception.
+- Keep formatter and linter detail in their tools; guidance records only non-obvious invocations or exceptions.
 - Make commands deterministic, non-interactive, and runnable with argument arrays rather than shell strings when possible.
 - Encode strict invariants in tests, linters, hooks, schemas, or CI. Use prose for navigation and judgment.
 - Make long work resumable through versioned execution plans; do not commit raw chat summaries, private session state, or throwaway handoff notes.
+- Treat `lite` and `full` as attention budgets, not quality levels: both keep the same safety and validation core.
 - Validate changes with the repository's own checks and review the final diff.
 
 ## Core workflow
@@ -58,6 +59,7 @@ Place each fact in exactly one primary surface:
 ### 3. Design before applying
 
 - Choose and record the specification persistence model: `living`, `flow-forward`, or `flow-back`.
+- Choose `lite` for small single-agent, single-session work and `full` for cross-session, multi-agent, monorepo, regulated, or broad migration work. Use the audit recommendation as evidence, not authority; override it when known intent requires a different profile.
 - Define canonical artifacts, generated artifacts, commands, budgets, and freshness policy in `.ai/harness.json`.
 - For monorepos, define repository-wide rules at the root and put component-specific guidance nearest its scope. Keep cross-tool auto-discovered skills at the repository-root `.agents/skills/`; namespace component workflows there because Kimi project discovery is rooted at the nearest `.git` directory.
 - Keep repo-local skills canonical under `.agents/skills/`; generate and validate Claude mirrors with `tools/ai/sync_skill_adapters.py`.
@@ -81,13 +83,8 @@ Place each fact in exactly one primary surface:
 
 Finish only when:
 
-- the root entrypoint is within its declared context budget;
-- Codex and Kimi can read the canonical guidance and Claude has a working import adapter;
-- repository-root Codex/Kimi repo-local skills have current, validated Claude discovery mirrors;
-- canonical knowledge files are linked and have verification metadata;
-- setup and verification commands are recorded and at least the safe relevant subset has passed;
-- active plans use the required resumability fields;
-- the agent registry and task boards, when present, pass the `agents` validation check;
-- no pre-existing project file was silently replaced;
-- brownfield claims distinguish observed facts from intended changes;
-- the audit and validation reports identify remaining gaps explicitly.
+- guidance fits its budget and is readable by Codex/Kimi, with a working Claude import adapter;
+- repo-local skills have current Claude mirrors, and canonical knowledge is linked with verification metadata;
+- commands are recorded and the safe relevant checks pass;
+- declared plans and agent coordination pass their structural checks;
+- no project file was silently replaced, brownfield claims remain evidence-labelled, and reports state remaining gaps.

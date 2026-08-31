@@ -16,9 +16,9 @@ This repository *is* the build-ai-first-project skill: it teaches other reposito
 - Manifest commands run only through argv arrays, never shells.
 - After changing validator behavior, extend `scripts/self_test.py` in the same change and run it before committing.
 
-## Why there is no .ai/harness.json here yet
+## Candidate layout
 
-This repo ships reference material that downstream projects copy verbatim; the current validator's canonical metadata check would force `Status:/Last verified:` headers onto those copied files. A minimal/lightweight harness profile is the planned prerequisite before this repo can honestly eat its own dog food (see the architecture proposal). Until then the omission is deliberate, not drift.
+During v3 research, this installable candidate lives under the outer repository's `skill/` directory. Research evidence and recovery archives stay outside this package. Do not copy the candidate into a global skills directory until the outer v3 plan is complete.
 
 ## Definition of done
 

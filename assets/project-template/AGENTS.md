@@ -5,37 +5,32 @@
 ## Start here
 
 - Read `.ai/harness.json` for canonical paths and commands.
-- Read `docs/INDEX.md` to locate product, architecture, operations, and quality knowledge.
+- Read `docs/INDEX.md` to locate the canonical knowledge that this profile actually provides.
 - Read the nearest scoped `AGENTS.md` before changing files under a subsystem.
 - Treat current code and tests as implementation evidence; treat verified product specifications as intended behavior.
 
 ## Project map
 
 - Product intent: `docs/product/index.md`
-- Current architecture: `ARCHITECTURE.md` and `docs/architecture/index.md`
-- Durable decisions: `docs/architecture/decisions/`
-- Agent roster: `docs/agents/REGISTRY.md`
-- Agent task boards: `docs/tasks/` (ownership is advisory; archive at phase end)
-- Canonical repo-local skills live in `.agents/skills/`; `tools/ai/sync_skill_adapters.py` generates managed `.claude/skills/` mirrors — edit only the canonical copy
-- Operations/quality/generated knowledge branches are intentionally omitted; create and declare them when first needed
-- Canonical repo-local skills: `.agents/skills/`; generated Claude mirrors: `.claude/skills/`
+- Current architecture: `ARCHITECTURE.md`
+{{PROFILE_PROJECT_MAP}}
+- Canonical repo-local skills: `.agents/skills/`; generate Claude mirrors with `tools/ai/sync_skill_adapters.py`
+- Decisions, operations, quality, and generated knowledge are intentionally omitted; create and declare a branch when first needed.
 
 ## Hard constraints
 
 - Do not present proposed architecture as current architecture.
 - For brownfield discoveries, cite source files or commands and use `Status: observed` until verified.
-- Keep changes focused; do not combine harness adoption with unrelated application refactors.
-- Preserve user changes and existing configuration. Never overwrite or delete project files silently.
+- Keep changes focused, preserve user work, and never overwrite or delete project files silently.
 - Do not commit secrets, private session logs, raw agent traces, or throwaway handoff notes.
 - Promote mechanically decidable rules into tests, lint, hooks, schemas, or CI instead of adding prose here.
 
 ## Working workflow
 
-- For work that crosses sessions or components, create or update a plan from `docs/plans/TEMPLATE.md` in `docs/plans/active/`.
-- At session start, mark yourself active in `docs/agents/REGISTRY.md` and set it back to idle when finishing; create your task board under `docs/tasks/` if needed.
+{{PROFILE_WORKFLOW}}
 - Record discoveries in the closest artifact, then reconcile product intent, architecture, decisions, tests, and generated docs before completion.
 - Run targeted checks first and the required manifest commands before declaring completion.
-- After changing `.agents/skills/`, follow `.agents/skills/README.md`.
+- After changing `.agents/skills/`, run `python tools/ai/sync_skill_adapters.py . --apply`, then validate.
 - Review the final diff for scope, regressions, stale documentation, generated-file drift, and private data.
 
 ## Definition of done
@@ -43,12 +38,4 @@
 - Requested behavior and acceptance criteria are satisfied.
 - Relevant tests and registered required checks pass, or remaining failures are reported with evidence.
 - Current-state architecture and product intent remain consistent with the change.
-- The active plan records final verification and is archived or removed according to the configured specification model.
-
-## Where to update guidance
-
-- Root hot-path rule: update this file.
-- Subsystem-only rule: update the nearest scoped `AGENTS.md`.
-- Repeatable procedure: create or update a repo-local skill or workflow.
-- Durable rationale: add an architecture decision.
-- Enforceable invariant: update code, tests, lint, hooks, or CI.
+{{PROFILE_DONE}}

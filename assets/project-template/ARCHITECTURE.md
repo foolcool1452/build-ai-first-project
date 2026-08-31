@@ -38,5 +38,5 @@ Describe the system boundary and primary users in two or three sentences. Do not
 
 ## Proposed changes
 
-Keep proposed architecture in `docs/plans/active/` or a change proposal. Link accepted decisions here only after implementation.
+Keep proposed architecture in {{PLANS_PROPOSAL_HINT}}. Link accepted decisions here only after implementation.
 

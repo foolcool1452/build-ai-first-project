@@ -5,19 +5,22 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from datetime import date
 from pathlib import Path
 
 sys.dont_write_bytecode = True
 
-from audit_project import analyze, discover_commands
+from audit_project import analyze
 
 
 SKILL_ROOT = Path(__file__).resolve().parent.parent
 TEMPLATE_ROOT = SKILL_ROOT / "assets" / "project-template"
 VALIDATOR_SOURCE = SKILL_ROOT / "scripts" / "validate_project.py"
 SKILL_ADAPTER_SOURCE = SKILL_ROOT / "scripts" / "sync_skill_adapters.py"
+FULL_ONLY_BRANCHES = ("docs/agents", "docs/plans", "docs/tasks")
+TEMPLATE_TOKEN = re.compile(r"\{\{([A-Z][A-Z0-9_]*)\}\}")
 
 
 def render(text: str, replacements: dict[str, str]) -> str:
@@ -26,12 +29,17 @@ def render(text: str, replacements: dict[str, str]) -> str:
     return text
 
 
-def template_files() -> list[tuple[Path, Path]]:
+def template_files(profile: str) -> list[tuple[Path, Path]]:
     files = []
     for path in TEMPLATE_ROOT.rglob("*"):
         if not path.is_file():
             continue
-        files.append((path, path.relative_to(TEMPLATE_ROOT)))
+        relative = path.relative_to(TEMPLATE_ROOT)
+        if profile == "lite" and any(
+            relative.as_posix().startswith(prefix + "/") for prefix in FULL_ONLY_BRANCHES
+        ):
+            continue
+        files.append((path, relative))
     files.append((VALIDATOR_SOURCE, Path("tools/ai/validate_harness.py")))
     files.append((SKILL_ADAPTER_SOURCE, Path("tools/ai/sync_skill_adapters.py")))
     return sorted(files, key=lambda item: item[1].as_posix())
@@ -43,6 +51,10 @@ def main() -> int:
     parser.add_argument("--mode", choices=("auto", "greenfield", "brownfield"), default="auto")
     parser.add_argument("--spec-model", choices=("living", "flow-forward", "flow-back"))
     parser.add_argument("--project-name")
+    parser.add_argument(
+        "--profile", choices=("auto", "lite", "full"), default="auto",
+        help="Landing set: auto recommends from audit evidence; lite keeps the verified core; full adds plans and agent coordination",
+    )
     parser.add_argument("--apply", action="store_true", help="Create missing files; default is preview only")
     args = parser.parse_args()
 
@@ -51,20 +63,59 @@ def main() -> int:
         parser.error(f"project directory must already exist: {root}")
     report = analyze(root)
     mode = report["modeRecommendation"] if args.mode == "auto" else args.mode
+    profile = report["profileRecommendation"] if args.profile == "auto" else args.profile
     spec_model = args.spec_model or ("living" if mode == "greenfield" else "flow-forward")
     project_name = args.project_name or root.name
-    commands_json = json.dumps(discover_commands(root), indent=2, ensure_ascii=False).replace("\n", "\n  ")
+    commands_json = json.dumps(report["discoveredCommands"], indent=2, ensure_ascii=False).replace("\n", "\n  ")
     arch_status = "observed"
     intent_status = "proposed" if mode == "greenfield" else "observed"
     replacements = {
         "PROJECT_NAME": project_name,
         "PROJECT_NAME_JSON": json.dumps(project_name, ensure_ascii=False),
         "MODE": mode,
+        "PROFILE": profile,
         "SPEC_MODEL": spec_model,
         "DATE": date.today().isoformat(),
         "ARCH_STATUS": arch_status,
         "INTENT_STATUS": intent_status,
         "COMMANDS_JSON": commands_json,
+        "PLANS_PROPOSAL_HINT": (
+            "`docs/plans/active/` or a change proposal" if profile == "full" else
+            "a change proposal (create and declare a plans branch first)"
+        ),
+        "OPTIONAL_KNOWLEDGE": (
+            ',\n    "plans": "docs/plans",\n    "agents": "docs/agents/REGISTRY.md",'
+            '\n    "tasks": "docs/tasks"'
+            if profile == "full" else ""
+        ),
+        "PROFILE_REQUIRED_CHECKS": (
+            ',\n      "plan-state",\n      "agents"' if profile == "full" else ""
+        ),
+        "PROFILE_PROJECT_MAP": (
+            "- Resumable plans: `docs/plans/active/` (start from `docs/plans/TEMPLATE.md`)\n"
+            "- Agent roster: `docs/agents/REGISTRY.md`\n"
+            "- Agent task boards: `docs/tasks/` (ownership is advisory)"
+            if profile == "full" else
+            "- Plans and agent coordination are intentionally omitted in the lite profile; add and declare them when work needs cross-session recovery or multiple agents."
+        ),
+        "PROFILE_ROUTING_ROWS": (
+            "| Who works here and their status | [Agent registry](agents/REGISTRY.md) |\n"
+            "| Lightweight per-agent todos | [Task boards](tasks/) |\n"
+            "| Resumable multi-step work | [Plan template](plans/TEMPLATE.md) and [active plans](plans/active/) |"
+            if profile == "full" else
+            "| Plans and agent coordination | Intentionally omitted by the lite profile; add and declare them when needed. |"
+        ),
+        "PROFILE_WORKFLOW": (
+            "- For work that crosses sessions or components, create or update a plan from `docs/plans/TEMPLATE.md` in `docs/plans/active/`.\n"
+            "- At session start, update your entry in `docs/agents/REGISTRY.md`; create your board under `docs/tasks/` when needed."
+            if profile == "full" else
+            "- If work grows beyond one agent or session, add the plans and coordination branches and declare them in `.ai/harness.json` before relying on them."
+        ),
+        "PROFILE_DONE": (
+            "- The active plan records final verification and leaves `docs/plans/active/` when complete."
+            if profile == "full" else
+            "- Any handoff state needed for unfinished work is preserved in a declared canonical artifact."
+        ),
     }
 
     def is_link_like(path: Path) -> bool:
@@ -76,7 +127,7 @@ def main() -> int:
     resolved_root = root.resolve()
     operations: list[tuple[str, Path, Path | None]] = []
     blockers: list[tuple[Path, str]] = []
-    for source, relative in template_files():
+    for source, relative in template_files(profile):
         target = root / relative
         if target.is_symlink():
             blockers.append((target, "target is a symlink"))
@@ -114,6 +165,15 @@ def main() -> int:
 
     print(f"Project: {root}")
     print(f"Mode: {mode}")
+    if args.profile == "auto":
+        print(f"Profile: {profile} (audit recommendation; score {report['profileScore']}/{report['profileThreshold']})")
+        for signal in report["profileSignals"]:
+            print(f"  {signal}")
+    else:
+        print(
+            f"Profile: {profile} (explicit override; audit recommended "
+            f"{report['profileRecommendation']} at {report['profileScore']}/{report['profileThreshold']})"
+        )
     print(f"Specification model: {spec_model}")
     print("Operations:")
     for action, target, _ in operations:
@@ -144,7 +204,13 @@ def main() -> int:
         if action != "create" or source is None:
             continue
         if source.suffix.lower() in {".md", ".json", ".py", ""}:
-            prepared[target] = ("text", render(source.read_text(encoding="utf-8"), replacements))
+            template = source.read_text(encoding="utf-8")
+            unknown = sorted(set(TEMPLATE_TOKEN.findall(template)) - replacements.keys())
+            if unknown:
+                print(f"Unknown template variables in {source.relative_to(SKILL_ROOT)}: {', '.join(unknown)}")
+                print("No files were written.")
+                return 1
+            prepared[target] = ("text", render(template, replacements))
         else:
             prepared[target] = ("bytes", source.read_bytes())
 

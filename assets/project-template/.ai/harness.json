@@ -3,7 +3,8 @@
   "project": {
     "name": {{PROJECT_NAME_JSON}},
     "adoptionMode": "{{MODE}}",
-    "specPersistence": "{{SPEC_MODEL}}"
+    "specPersistence": "{{SPEC_MODEL}}",
+    "harnessProfile": "{{PROFILE}}"
   },
   "guidance": {
     "entrypoint": "AGENTS.md",
@@ -15,10 +16,7 @@
   "knowledge": {
     "index": "docs/INDEX.md",
     "architecture": "ARCHITECTURE.md",
-    "product": "docs/product/index.md",
-    "plans": "docs/plans",
-    "agents": "docs/agents/REGISTRY.md",
-    "tasks": "docs/tasks"
+    "product": "docs/product/index.md"{{OPTIONAL_KNOWLEDGE}}
   },
   "commands": {{COMMANDS_JSON}},
   "validation": {
@@ -27,9 +25,7 @@
       "guidance-budget",
       "adapter-consistency",
       "links",
-      "metadata",
-      "plan-state",
-      "agents",
+      "metadata"{{PROFILE_REQUIRED_CHECKS}},
       "commands",
       "architecture"
     ]

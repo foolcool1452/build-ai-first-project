@@ -5,17 +5,18 @@
 1. Greenfield workflow
 2. Brownfield workflow
 3. Change workflow
-4. Recovery and handoff
-5. Multi-agent collaboration
-6. Continuous gardening
+4. Work rounds
+5. Recovery and handoff
+6. Multi-agent collaboration
+7. Continuous gardening
 
 ## Greenfield workflow
 
 1. Capture goal, users, acceptance criteria, risks, operational environment, and non-goals before choosing framework details.
 2. Select a stable, well-documented stack with deterministic local commands. Prefer inspectable abstractions and text or JSON interfaces.
-3. Preview scaffolding with `scaffold_project.py <repo> --mode greenfield`; the fixed landing set covers routing, product intent, architecture, plans, and the collaboration surfaces, with everything else omitted until needed.
+3. Preview scaffolding with `scaffold_project.py <repo> --mode greenfield --profile auto`. Review the evidence: keep `lite` for small single-agent work, or select `full` when known scope requires resumable plans or coordination.
 4. Choose a specification model explicitly. Default to `living` when product specifications will remain contracts.
-5. Create the harness before substantive product code: guidance, manifest, product intent, current architecture skeleton, validation entrypoint, and a plan template when multi-session work requires it.
+5. Create the harness before substantive product code: guidance, manifest, product intent, current architecture skeleton, and validation entrypoint. The full profile also creates plans and collaboration surfaces.
 6. Implement one vertical golden path that exercises setup, test, logging, error handling, and user-visible validation.
 7. Register real commands in the manifest. Delete placeholder commands rather than pretending they work.
 8. Add the first architecture boundary as an executable check.
@@ -45,6 +46,7 @@ Greenfield exit criteria: a fresh agent can locate the right files, run the proj
 - Add `CLAUDE.md` as `@AGENTS.md` plus only Claude-specific behavior.
 - Create the manifest with existing commands and canonical paths.
 - Link existing useful docs instead of duplicating them.
+- Choose the profile from both census evidence and known intent. Existing plans, multiple agents, a monorepo, regulated evidence, or a broad migration favor `full`; a bounded single-purpose repository favors `lite`.
 - Keep repo-local skills canonical under `.agents/skills/` and follow the sync procedure in `adapters.md`.
 
 ### Phase 3: current-state map
@@ -83,6 +85,22 @@ Brownfield exit criteria: the harness improves routing and verification without 
 
 Use flow-forward for strong audit history, living specs for stable product contracts, and flow-back only when the team commits to explicit reconciliation after implementation discoveries.
 
+## Work rounds
+
+A work round is the standard unit for non-trivial changes: **Plan** (research, with optional subagents) → **Execute** → **Review** (review subagent) → repeat Execute/Review as needed → **Reconcile** (bring specs, architecture, and the routing index back in line with what was built). Rounds turn long work into review-bounded, resumable increments. Log one entry per round in the active plan's `Rounds` section (see `docs/plans/TEMPLATE.md`).
+
+**Subagent rules**
+
+1. **Shared identity, owned output**: subagents may research, review, and write. Everything a subagent changes carries the session's identity — the session owns the result, and subagent-written changes receive the same review as the session's own.
+2. **Partition parallel writers**: if several writing subagents run concurrently, give each a strict file or region partition — or serialize them. Unpartitioned parallel writers are how conflicts and turf wars start.
+3. **Budget on the table**: one research and one review subagent per round by default. More than that requires a written justification in the round entry — extra subagents are bought token-per-performance and must pay for themselves.
+4. **Zero-shared-context review**: the review subagent receives the goal, the combined diff (including subagent-written changes), and the evidence — never the working conversation. Reviewers without shared context catch more and praise less.
+5. **Disposition discipline**: every review finding is accepted or rejected with a one-line reason in the round entry. Silent drops are how defects ship.
+
+**When not to spawn**: the task is answerable with a few direct reads; the change is single-file; a subagent would only re-read what the session already knows; or nothing about the outcome is independently verifiable. Marginal gains from extra agents are often smaller than their coordination and token cost.
+
+**Division of labor across surfaces**: plans answer "what is being changed and why"; the registry answers "who is here, in what state, and which session is the writer"; boards answer "what small items are queued"; rounds answer "how this piece of work was actually done and reviewed".
+
 ## Recovery and handoff
 
 On pause or context loss, update the active plan with:
@@ -99,19 +117,20 @@ Do not create a separate `HANDOFF.md` when the active plan already owns this sta
 
 ## Multi-agent collaboration
 
-Usually one agent works at a time; the registry and task boards make identity, presence, and division of labor visible so any session can orient without hidden knowledge.
+The full profile provides a registry and task boards so identity, presence, and division of labor remain visible without hidden knowledge. Lite projects add and declare these branches only when collaboration becomes real.
 
 **Session lifecycle**
 
 1. On the first session in a project, register in `docs/agents/REGISTRY.md` (one `## <agent-id>` section) and create `docs/tasks/<agent-id>.md`.
-2. At session start, set your `Status: active` and refresh `Last active`.
-3. While working, keep lightweight todos on your board; reference cross-session plans rather than duplicating them.
-4. At session end or context handoff, set `Status: idle`, update `Last active`, and leave the board consistent with the active plan's state.
+2. At session start, set your `Status: active` and refresh `Last active`. This project allows a single writer session: while your entry is `active`, no other session may claim the role.
+3. While working, keep lightweight todos on your board; reference cross-session plans rather than duplicating them. Subagents spawned by your session and read-only review agents work under your identity — they are not registered and never set `active`.
+4. At session end or context handoff, set `Status: idle`, update `Last active`, and leave the board consistent with the active plan's state. The next session then claims `active`.
 5. When a phase ends, groom boards: archive finished items to `docs/tasks/archive/<YYYY-MM-DD>-<agent-id>.md` (default) or delete them if the team prefers no history.
 
 **Ownership rules (advisory)**
 
-- Task-board ownership is a display convention. Any registered agent may work any item; note the takeover on your own board so history stays legible.
+- The single-writer invariant is enforced by validation (`AGENT_MULTIPLE_ACTIVE`); everything else about ownership stays a display convention.
+- Task-board ownership is a display convention. With one writer session at a time, takeovers happen between sessions; note the handover so history stays legible.
 - Never edit another agent's registry section except to retire it after explicit handover; update only your own entry.
 - Retired agents keep their sections and archives as history; their boards may be deleted at grooming time.
 

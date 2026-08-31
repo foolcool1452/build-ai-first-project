@@ -236,6 +236,8 @@ class Validator:
                 self.add("error", "MANIFEST_CONTRACT", "project.adoptionMode must be 'greenfield' or 'brownfield'.", manifest_path)
             if project.get("specPersistence") not in ("living", "flow-forward", "flow-back"):
                 self.add("error", "MANIFEST_CONTRACT", "project.specPersistence must be 'living', 'flow-forward', or 'flow-back'.", manifest_path)
+            if "harnessProfile" in project and project.get("harnessProfile") not in ("lite", "full"):
+                self.add("error", "MANIFEST_CONTRACT", "project.harnessProfile must be 'lite' or 'full' when present.", manifest_path)
         guidance = self.manifest.get("guidance")
         if not isinstance(guidance, dict) or not isinstance(guidance.get("entrypoint"), str) or not guidance.get("entrypoint", "").strip():
             self.add("error", "MANIFEST_CONTRACT", "guidance.entrypoint must be a non-empty string.", manifest_path)
@@ -260,6 +262,15 @@ class Validator:
             self.add("error", "MANIFEST_CONTRACT", "validation.requiredChecks must be an array of check names.", manifest_path)
         elif unknown := sorted(set(checks) - SUPPORTED_CHECKS):
             self.add("error", "UNKNOWN_CHECK", f"Unknown required checks: {', '.join(unknown)}", manifest_path)
+        profile = project.get("harnessProfile") if isinstance(project, dict) else None
+        full_paths = {"plans", "agents", "tasks"}
+        declared_paths = set(knowledge) if isinstance(knowledge, dict) else set()
+        declared_checks = set(checks) if isinstance(checks, list) else set()
+        full_shape = full_paths <= declared_paths and {"plan-state", "agents"} <= declared_checks
+        if profile == "full" and not full_shape:
+            self.add("error", "MANIFEST_CONTRACT", "The full harness profile must declare plans, agents, and tasks knowledge plus plan-state and agents checks.", manifest_path)
+        elif profile == "lite" and full_shape:
+            self.add("warning", "PROFILE_DRIFT", "The lite manifest now has the complete full-profile shape; update project.harnessProfile to 'full'.", manifest_path)
         if isinstance(guidance, dict):
             self.repo_path(guidance.get("entrypoint"), "GUIDANCE_PATH")
         if knowledge is not None:
@@ -268,6 +279,18 @@ class Validator:
             for key in ("plans", "operations", "quality", "generated", "agents", "tasks"):
                 if key in knowledge:
                     self.repo_path(knowledge.get(key), f"KNOWLEDGE_{key.upper()}")
+        if profile == "lite" and isinstance(knowledge, dict):
+            undeclared = [
+                name for name, key in (("docs/plans", "plans"), ("docs/agents", "agents"), ("docs/tasks", "tasks"))
+                if key not in knowledge and (self.root / name).exists()
+            ]
+            if undeclared:
+                self.add(
+                    "warning", "PROFILE_PROMOTION_PENDING",
+                    f"Coordination surfaces exist on disk but are not declared in knowledge ({', '.join(undeclared)}); "
+                    "declare them, enable plan-state/agents checks, and set project.harnessProfile to 'full' — or remove the directories.",
+                    manifest_path,
+                )
         for source in nested_skills(self.root):
             self.add(
                 "error", "NESTED_SKILL_NOT_PORTABLE",
@@ -552,19 +575,28 @@ class Validator:
                 self.add("error", "PLAN_STATUS", f"Invalid active plan status: {status.group(1)}", path)
 
     @staticmethod
-    def agent_sections(registry_text: str) -> list[tuple[str, str]]:
-        """Collect single-token '## <agent-id>' sections, skipping fenced code."""
+    def agent_sections(registry_text: str) -> tuple[list[tuple[str, str]], bool]:
+        """Collect single-token '## <agent-id>' sections, skipping fenced code.
+
+        Returns the sections and whether a fence was left open at the end —
+        sections after an unclosed fence cannot be trusted."""
         sections: list[tuple[str, str]] = []
-        fenced = False
+        fence_token: str | None = None
         current_id: str | None = None
         body: list[str] = []
         for line in registry_text.splitlines():
-            if line.lstrip().startswith("```"):
-                fenced = not fenced
-                continue
-            if fenced:
-                if current_id is not None:
+            stripped = line.lstrip()
+            if fence_token:
+                if stripped.startswith(fence_token):
+                    fence_token = None
+                elif current_id is not None:
                     body.append(line)
+                continue
+            if stripped.startswith("```"):
+                fence_token = "```"
+                continue
+            if stripped.startswith("~~~"):
+                fence_token = "~~~"
                 continue
             heading = re.match(r"^##\s+(\S+)\s*$", line)
             if heading:
@@ -576,7 +608,7 @@ class Validator:
                 body.append(line)
         if current_id is not None:
             sections.append((current_id, "\n".join(body)))
-        return sections
+        return sections, fence_token is not None
 
     def parsed_agent_date(self, raw: str, code: str, field: str, path: Path) -> date | None:
         value = raw.strip().strip("`")
@@ -605,7 +637,9 @@ class Validator:
             if registry is not None and registry.is_file():
                 text = registry.read_text(encoding="utf-8", errors="replace")
                 seen: dict[str, Path] = {}
-                for agent_id, body in self.agent_sections(text):
+                active_ids: list[str] = []
+                sections, fence_unclosed = self.agent_sections(text)
+                for agent_id, body in sections:
                     key = agent_id.lower()
                     if key in seen:
                         self.add(
@@ -632,6 +666,8 @@ class Validator:
                             f"Agent '{agent_id}' has invalid Status '{status}'; use one of: {', '.join(sorted(AGENT_STATUSES))}.",
                             registry,
                         )
+                    if status is not None and status.strip().lower() == "active":
+                        active_ids.append(agent_id)
                     joined = self.parsed_agent_date(fields["Joined"], "AGENT_DATE", "Joined", registry) if "Joined" in fields else None
                     last_active_raw = fields.get("Last active")
                     last_active = None
@@ -643,11 +679,25 @@ class Validator:
                     if last_active is not None and last_active > today:
                         self.add("error", "AGENT_DATE", f"Agent '{agent_id}' Last active date is in the future.", registry)
                     elif last_active is not None and (today - last_active).days > freshness:
+                        advice = "" if (status or "").strip().lower() == "retired" else " Refresh Last active or set Status to idle/retired."
                         self.add(
                             "warning", "AGENT_STALE",
-                            f"Agent '{agent_id}' was last active {(today - last_active).days} days ago; set Status to idle/retired or refresh the date.",
+                            f"Agent '{agent_id}' was last active {(today - last_active).days} days ago.{advice}",
                             registry,
                         )
+                if fence_unclosed:
+                    self.add(
+                        "warning", "AGENT_FENCE_UNCLOSED",
+                        "Registry has an unclosed code fence; agent sections after it are ignored. Close the fence or remove it.",
+                        registry,
+                    )
+                if len(active_ids) > 1:
+                    self.add(
+                        "error", "AGENT_MULTIPLE_ACTIVE",
+                        f"{len(active_ids)} agents are marked active ({', '.join(active_ids)}); "
+                        "this repository allows a single writer session — set all but one to idle/retired.",
+                        registry,
+                    )
 
         tasks_value = knowledge.get("tasks")
         if tasks_value is None:

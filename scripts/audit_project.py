@@ -41,6 +41,7 @@ SOURCE_EXTENSIONS = {
     ".ex": "Elixir", ".exs": "Elixir", ".scala": "Scala",
 }
 TEST_SOURCE_EXTENSIONS = set(SOURCE_EXTENSIONS) | {".bash", ".ps1"}
+PROFILE_THRESHOLD = 3
 
 
 def resolve_root(path: Path) -> Path:
@@ -283,6 +284,41 @@ def discover_commands(root: Path) -> dict[str, list[dict[str, Any]]]:
     return discovered
 
 
+def recommend_profile(
+    *,
+    file_count: int,
+    source_count: int,
+    language_count: int,
+    manifest_count: int,
+    has_continuity_surface: bool,
+    has_tests: bool,
+    has_ci: bool,
+) -> tuple[str, int, list[str]]:
+    """Recommend a landing profile from explainable repository evidence.
+
+    This is deliberately a small, deterministic heuristic. Product risk,
+    future scope, and team intent remain reasons for an agent or user to
+    override the recommendation explicitly at scaffold time.
+    """
+    rules = (
+        (source_count >= 12, 1, f"{source_count} source files (at least 12)"),
+        (source_count >= 50, 1, f"{source_count} source files (at least 50)"),
+        (file_count >= 40, 1, f"{file_count} repository files (at least 40)"),
+        (file_count >= 150, 1, f"{file_count} repository files (at least 150)"),
+        (language_count >= 2, 1, f"{language_count} implementation languages"),
+        (manifest_count >= 2, 1, f"{manifest_count} root build manifests"),
+        (has_continuity_surface, 3, "existing plans or agent-coordination surfaces"),
+        (has_tests and has_ci, 1, "both tests and CI are present"),
+    )
+    matched = [(points, message) for applies, points, message in rules if applies]
+    score = sum(points for points, _ in matched)
+    signals = [f"+{points} {message}" for points, message in matched]
+    profile = "full" if score >= PROFILE_THRESHOLD else "lite"
+    if not signals:
+        signals.append("+0 no full-profile complexity signals detected")
+    return profile, score, signals
+
+
 def analyze(root: Path) -> dict[str, Any]:
     files = relative_files(root)
     file_set = set(files)
@@ -320,6 +356,8 @@ def analyze(root: Path) -> dict[str, Any]:
         "operations": any(p.startswith("docs/operations/") for p in live_files),
         "quality": any(p.startswith("docs/quality/") for p in live_files),
         "generated": any(p.startswith("docs/generated/") for p in live_files),
+        "agentRegistry": "docs/agents/REGISTRY.md" in file_set,
+        "taskBoards": any(p.startswith("docs/tasks/") for p in live_files),
     }
     verification = {
         "tests": any(is_test_path(p) for p in files),
@@ -338,6 +376,15 @@ def analyze(root: Path) -> dict[str, Any]:
         "openSpec": any(p.startswith("openspec/") for p in files),
     }
     commands = discover_commands(root)
+    profile, profile_score, profile_signals = recommend_profile(
+        file_count=len(files),
+        source_count=source_count,
+        language_count=len(languages),
+        manifest_count=len(manifests),
+        has_continuity_surface=docs["activePlans"] or docs["agentRegistry"] or docs["taskBoards"],
+        has_tests=verification["tests"],
+        has_ci=verification["ci"],
+    )
 
     findings: list[dict[str, str]] = []
     if not guidance:
@@ -360,6 +407,10 @@ def analyze(root: Path) -> dict[str, Any]:
     return {
         "root": str(root),
         "modeRecommendation": "greenfield" if greenfield else "brownfield",
+        "profileRecommendation": profile,
+        "profileScore": profile_score,
+        "profileThreshold": PROFILE_THRESHOLD,
+        "profileSignals": profile_signals,
         "fileCount": len(files),
         "sourceFileCount": source_count,
         "languages": dict(languages.most_common()),
@@ -379,7 +430,10 @@ def to_markdown(report: dict[str, Any]) -> str:
         "# AI-first Repository Audit", "",
         f"- Root: `{report['root']}`",
         f"- Recommended mode: **{report['modeRecommendation']}**",
+        f"- Recommended profile: **{report['profileRecommendation']}** (score {report['profileScore']}/{report['profileThreshold']})",
         f"- Files/source files: {report['fileCount']}/{report['sourceFileCount']}", "",
+        "## Profile evidence", "",
+        *(f"- {signal}" for signal in report["profileSignals"]), "",
         "## Findings", "",
     ]
     if report["findings"]:

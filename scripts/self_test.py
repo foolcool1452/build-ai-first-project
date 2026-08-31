@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -51,6 +52,12 @@ def write_json(path: Path, value: dict) -> None:
     path.write_text(json.dumps(value, indent=2, ensure_ascii=False) + "\n", encoding="utf-8", newline="\n")
 
 
+def assert_no_template_tokens(root: Path) -> None:
+    for path in root.rglob("*"):
+        if path.is_file() and path.suffix.lower() in {".md", ".json", ".py"}:
+            assert not re.search(r"\{\{[A-Z][A-Z0-9_]*\}\}", path.read_text(encoding="utf-8")), path
+
+
 def create_directory_link(link: Path, target: Path) -> bool:
     try:
         link.symlink_to(target, target_is_directory=True)
@@ -79,30 +86,95 @@ def main() -> int:
         unicode_audit = json.loads(run(AUDIT, str(unicode_repo), "--format", "json").stdout)
         assert Path(unicode_audit["root"]) == unicode_repo.resolve()
 
-        green = base / "greenfield"
+        lite = base / "lite-greenfield"
+        lite.mkdir()
+        lite_preview = run(SCAFFOLD, str(lite), "--mode", "greenfield")
+        assert "Profile: lite (audit recommendation; score 0/3)" in lite_preview.stdout
+        assert "+0 no full-profile complexity signals detected" in lite_preview.stdout
+        run(SCAFFOLD, str(lite), "--mode", "greenfield", "--apply")
+        lite_manifest = json.loads((lite / ".ai/harness.json").read_text(encoding="utf-8"))
+        assert lite_manifest["project"]["harnessProfile"] == "lite"
+        assert not {"plans", "agents", "tasks"} & set(lite_manifest["knowledge"])
+        assert "plan-state" not in lite_manifest["validation"]["requiredChecks"]
+        assert "agents" not in lite_manifest["validation"]["requiredChecks"]
+        for omitted in (
+            "docs/agents/REGISTRY.md", "docs/tasks/README.md",
+            "docs/plans/TEMPLATE.md", "docs/plans/active/README.md",
+        ):
+            assert not (lite / omitted).exists(), omitted
+        assert (lite / ".ai/.gitignore").read_text(encoding="utf-8") == "reports/\ntmp/\n"
+        lite_guidance = (lite / "AGENTS.md").read_text(encoding="utf-8")
+        for ghost_route in (
+            "docs/architecture/index.md", "docs/architecture/decisions/",
+            ".agents/skills/README.md", "docs/agents/REGISTRY.md",
+            "docs/tasks/", "docs/plans/TEMPLATE.md",
+        ):
+            assert ghost_route not in lite_guidance
+        for ghost_doc in ("ARCHITECTURE.md", "docs/INDEX.md"):
+            ghost_text = (lite / ghost_doc).read_text(encoding="utf-8")
+            assert "docs/plans/active/" not in ghost_text, ghost_doc
+        assert_no_template_tokens(lite)
+        run(VALIDATE, str(lite))
+        lite_snapshot = {path.relative_to(lite): path.read_bytes() for path in lite.rglob("*") if path.is_file()}
+        run(SCAFFOLD, str(lite), "--mode", "greenfield", "--profile", "lite", "--apply")
+        assert lite_snapshot == {path.relative_to(lite): path.read_bytes() for path in lite.rglob("*") if path.is_file()}
+
+        # Official promotion path: lite landing, then full --apply adds the
+        # coordination files. The manifest stays lite until reconciled, and
+        # validation must surface the pending promotion instead of staying silent.
+        run(SCAFFOLD, str(lite), "--mode", "greenfield", "--profile", "full", "--apply")
+        promotion_report = run(VALIDATE, str(lite))
+        assert promotion_report.returncode == 0
+        assert "PROFILE_PROMOTION_PENDING" in promotion_report.stdout
+
+        green = base / "full-greenfield"
         green.mkdir()
-        preview = run(SCAFFOLD, str(green), "--mode", "greenfield")
+        preview = run(SCAFFOLD, str(green), "--mode", "greenfield", "--profile", "full")
         assert "Preview only" in preview.stdout
+        assert "Profile: full (explicit override; audit recommended lite at 0/3)" in preview.stdout
         assert not (green / "AGENTS.md").exists()
-        run(SCAFFOLD, str(green), "--mode", "greenfield", "--apply")
+        run(SCAFFOLD, str(green), "--mode", "greenfield", "--profile", "full", "--apply")
         assert '\n    "setup": []' in (green / ".ai/harness.json").read_text(encoding="utf-8")
+        full_manifest = json.loads((green / ".ai/harness.json").read_text(encoding="utf-8"))
+        assert full_manifest["project"]["harnessProfile"] == "full"
+        assert {"plans", "agents", "tasks"} <= set(full_manifest["knowledge"])
+        assert {"plan-state", "agents"} <= set(full_manifest["validation"]["requiredChecks"])
         for tracked in (
             "AGENTS.md", "CLAUDE.md", "ARCHITECTURE.md",
             "docs/INDEX.md", "docs/product/index.md",
             "docs/agents/REGISTRY.md", "docs/tasks/README.md",
             "docs/plans/TEMPLATE.md", "docs/plans/active/README.md",
             ".ai/harness.json",
+            ".ai/.gitignore",
             "tools/ai/sync_skill_adapters.py", "tools/ai/validate_harness.py",
         ):
             assert (green / tracked).is_file(), tracked
+        plan_template_text = (green / "docs/plans/TEMPLATE.md").read_text(encoding="utf-8")
+        assert "## Rounds" in plan_template_text and "### Round 1" in plan_template_text
         for removed in (".ai/harness.schema.json", "docs/quality/QUALITY.md", "docs/operations/index.md"):
             assert not (green / removed).exists(), removed
+        full_guidance = (green / "AGENTS.md").read_text(encoding="utf-8")
+        for ghost_route in (
+            "docs/architecture/index.md", "docs/architecture/decisions/", ".agents/skills/README.md",
+        ):
+            assert ghost_route not in full_guidance
+        assert_no_template_tokens(green)
         run(VALIDATE, str(green))
         audit = run(AUDIT, str(green), "--format", "json")
         report = json.loads(audit.stdout)
         assert report["verification"]["harnessValidator"] is True
         assert "score" not in report
         assert report["sourceFileCount"] == 0 and report["modeRecommendation"] == "greenfield"
+        assert report["profileRecommendation"] == "full" and report["profileScore"] >= 3
+
+        complex_repo = base / "auto-full"
+        (complex_repo / "src").mkdir(parents=True)
+        for index in range(50):
+            (complex_repo / f"src/module_{index}.py").write_text("VALUE = 1\n", encoding="utf-8")
+        complex_preview = run(SCAFFOLD, str(complex_repo))
+        assert "Profile: full (audit recommendation; score 3/3)" in complex_preview.stdout
+        complex_audit = json.loads(run(AUDIT, str(complex_repo), "--format", "json").stdout)
+        assert complex_audit["profileRecommendation"] == "full" and complex_audit["profileScore"] >= 3
 
         output = green / "existing-report.md"
         output.write_text("sentinel\n", encoding="utf-8")
@@ -119,6 +191,17 @@ def main() -> int:
         collision = run(SCAFFOLD, str(blocked), "--apply", expected=1)
         assert "Blocking path conflicts" in collision.stdout
         assert not (blocked / ".ai").exists()
+
+        unknown_skill = base / "unknown-template-skill"
+        shutil.copytree(SCRIPTS.parent, unknown_skill,
+                        ignore=shutil.ignore_patterns("__pycache__"))
+        with (unknown_skill / "assets/project-template/AGENTS.md").open("a", encoding="utf-8") as handle:
+            handle.write("\n{{UNKNOWN_TEMPLATE_VARIABLE}}\n")
+        unknown_target = base / "unknown-template-target"
+        unknown_target.mkdir()
+        unknown_result = run(unknown_skill / "scripts/scaffold_project.py", str(unknown_target), "--apply", expected=1)
+        assert "UNKNOWN_TEMPLATE_VARIABLE" in unknown_result.stdout and "No files were written" in unknown_result.stdout
+        assert not any(unknown_target.iterdir())
 
         quoted_name = base / "quoted-name"
         quoted_name.mkdir()
@@ -147,11 +230,12 @@ def main() -> int:
             json.dumps({"name": "brownfield", "scripts": {"test": "node --test", "lint": "eslint .", "build": "tsc"}}),
             encoding="utf-8",
         )
-        run(SCAFFOLD, str(brown), "--mode", "brownfield", "--apply")
+        run(SCAFFOLD, str(brown), "--mode", "brownfield", "--profile", "full", "--apply")
         assert (brown / "AGENTS.md").read_text(encoding="utf-8") == existing_guidance
         manifest_path = brown / ".ai/harness.json"
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         assert manifest["project"]["specPersistence"] == "flow-forward"
+        assert manifest["project"]["harnessProfile"] == "full"
         assert manifest["commands"]["test"][0]["argv"] == ["npm", "run", "test"]
         run(VALIDATE, str(brown))
 
@@ -190,6 +274,7 @@ def main() -> int:
                 assert "Traceback" not in shape_report.stderr, (block, malformed_value)
         # Strict mode only promotes warnings now; there is no required-command rule.
         strict_manifest = json.loads((green / ".ai/harness.json").read_text(encoding="utf-8"))
+        strict_manifest["project"].pop("harnessProfile")
         strict_manifest["commands"] = {}
         strict_manifest["validation"]["requiredChecks"] = ["structure"]
         write_json(manifest_path, strict_manifest)
@@ -201,6 +286,31 @@ def main() -> int:
         write_json(manifest_path, missing_name)
         name_report = run(VALIDATE, str(brown), expected=1)
         assert "MANIFEST_CONTRACT" in name_report.stdout
+        write_json(manifest_path, json.loads((green / ".ai/harness.json").read_text(encoding="utf-8")))
+
+        legacy_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        legacy_manifest["project"].pop("harnessProfile")
+        write_json(manifest_path, legacy_manifest)
+        run(VALIDATE, str(brown))
+
+        invalid_profile = json.loads(manifest_path.read_text(encoding="utf-8"))
+        invalid_profile["project"]["harnessProfile"] = "huge"
+        write_json(manifest_path, invalid_profile)
+        profile_report = run(VALIDATE, str(brown), expected=1)
+        assert "MANIFEST_CONTRACT" in profile_report.stdout and "harnessProfile" in profile_report.stdout
+        write_json(manifest_path, json.loads((green / ".ai/harness.json").read_text(encoding="utf-8")))
+
+        incomplete_full = json.loads(manifest_path.read_text(encoding="utf-8"))
+        incomplete_full["knowledge"].pop("agents")
+        write_json(manifest_path, incomplete_full)
+        incomplete_report = run(VALIDATE, str(brown), expected=1)
+        assert "MANIFEST_CONTRACT" in incomplete_report.stdout and "full harness profile" in incomplete_report.stdout
+
+        drifted_lite = json.loads((green / ".ai/harness.json").read_text(encoding="utf-8"))
+        drifted_lite["project"]["harnessProfile"] = "lite"
+        write_json(manifest_path, drifted_lite)
+        drift_report = run(VALIDATE, str(brown))
+        assert "PROFILE_DRIFT" in drift_report.stdout
         write_json(manifest_path, json.loads((green / ".ai/harness.json").read_text(encoding="utf-8")))
 
         minimal_command = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -323,6 +433,7 @@ def main() -> int:
 
         # Intentional omission: plans can be undeclared and removed wholesale.
         optional = json.loads(manifest_path.read_text(encoding="utf-8"))
+        optional["project"]["harnessProfile"] = "lite"
         optional["knowledge"].pop("plans")
         write_json(manifest_path, optional)
         shutil.rmtree(brown / "docs/plans")
@@ -509,6 +620,27 @@ def main() -> int:
         archive_report = run(VALIDATE, str(brown))
         assert "ARCHIVE_NAME" in archive_report.stdout
         archive_note.unlink()
+
+        # Single-writer invariant: one active passes, two fail.
+        write_registry(valid_agent_text("active", today) + valid_agent_text("idle", stale_day).replace("## atlas", "## nova"))
+        mixed_report = run(VALIDATE, str(brown))
+        assert "AGENT_MULTIPLE_ACTIVE" not in mixed_report.stdout
+        write_registry(valid_agent_text("active", today) + valid_agent_text("active", today).replace("## atlas", "## nova"))
+        multi_report = run(VALIDATE, str(brown), expected=1)
+        assert "AGENT_MULTIPLE_ACTIVE" in multi_report.stdout
+        write_registry(valid_agent_text("active", today))
+
+        # Tilde fences are skipped exactly like backtick fences; an unclosed
+        # fence warns instead of silently swallowing later sections.
+        write_registry(valid_agent_text("active", today)
+                       + "\n~~~md\n## ghost\n\n- Model: m\n- Joined: " + today
+                       + "\n- Status: active\n- Last active: " + today + "\n\n~~~\n")
+        tilde_report = run(VALIDATE, str(brown))
+        assert "AGENT_MULTIPLE_ACTIVE" not in tilde_report.stdout
+        write_registry(valid_agent_text("active", today) + "\n```md\n## ghost\n- Status: active\n")
+        unclosed_report = run(VALIDATE, str(brown))
+        assert "AGENT_FENCE_UNCLOSED" in unclosed_report.stdout
+        write_registry(valid_agent_text("active", today))
 
         baseline_manifest_obj = json.loads(manifest_path.read_text(encoding="utf-8"))
         omitting = json.loads(json.dumps(baseline_manifest_obj))

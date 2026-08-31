@@ -1,7 +1,10 @@
 # Agent task boards
 
-Lightweight per-agent todo boards. Ownership is a display convention, not a
-claim: any registered agent (see `../agents/REGISTRY.md`) may pick up any item.
+Lightweight per-agent todo boards. This repository runs a single writer
+session at a time, so boards mostly record what that session is doing and
+what it hands to the next one. Items produced by the session's subagents or
+read-only reviewers are recorded on the owning session's board, not on
+separate boards.
 
 ## Creating your board
 
@@ -25,8 +28,9 @@ Last updated: YYYY-MM-DD
 ## Rules
 
 - Keep items outcome-oriented and small enough to verify in one session.
-- Taking over another agent's item: check it off only in their board's spirit —
-  move it to `In progress` on your own board and note the handover there.
+- Because only one writer session runs at a time, takeovers happen between
+  sessions: move unfinished items to the next session's board (or note the
+  handover there) instead of editing the previous session's board.
 - Cross-session, multi-step work belongs in `docs/plans/active/` instead;
   boards are for lightweight todos. Reference the plan from both places.
 
