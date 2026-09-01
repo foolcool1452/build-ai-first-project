@@ -45,6 +45,7 @@ verification.
 
 ### Round 1 — {{DATE}} — <goal>
 
+- Research: findings (optional; read-only subagents if the area was unfamiliar).
 - Verify: <how this round is proven — run it before closing>.
 - Execute: what changed; partition if parallel writing subagents ran.
 - Review: findings; each accepted or rejected with a reason; proof re-ran.

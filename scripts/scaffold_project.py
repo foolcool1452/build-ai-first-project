@@ -19,7 +19,7 @@ SKILL_ROOT = Path(__file__).resolve().parent.parent
 TEMPLATE_ROOT = SKILL_ROOT / "assets" / "project-template"
 VALIDATOR_SOURCE = SKILL_ROOT / "scripts" / "validate_project.py"
 SKILL_ADAPTER_SOURCE = SKILL_ROOT / "scripts" / "sync_skill_adapters.py"
-FULL_ONLY_BRANCHES = ("docs/agents", "docs/plans", "docs/tasks")
+FULL_ONLY_BRANCHES = (".ai", "docs/agents", "docs/plans")
 TEMPLATE_TOKEN = re.compile(r"\{\{([A-Z][A-Z0-9_]*)\}\}")
 
 
@@ -40,8 +40,9 @@ def template_files(profile: str) -> list[tuple[Path, Path]]:
         ):
             continue
         files.append((path, relative))
-    files.append((VALIDATOR_SOURCE, Path("tools/ai/validate_harness.py")))
-    files.append((SKILL_ADAPTER_SOURCE, Path("tools/ai/sync_skill_adapters.py")))
+    if profile == "full":
+        files.append((VALIDATOR_SOURCE, Path("tools/ai/validate_harness.py")))
+        files.append((SKILL_ADAPTER_SOURCE, Path("tools/ai/sync_skill_adapters.py")))
     return sorted(files, key=lambda item: item[1].as_posix())
 
 
@@ -56,7 +57,15 @@ def main() -> int:
         help="Landing set: auto recommends from audit evidence; lite keeps the verified core; full adds plans and agent coordination",
     )
     parser.add_argument("--apply", action="store_true", help="Create missing files; default is preview only")
+    parser.add_argument("--diff", action="store_true",
+                        help="Read-only: classify the landing set against existing files (missing/same/DIFFER)")
+    parser.add_argument("--write-new", action="store_true",
+                        help="With --diff: write rendered copies of differing files as <path>.suggested; never overwrites")
     args = parser.parse_args()
+    if args.diff and args.apply:
+        parser.error("--diff and --apply are mutually exclusive")
+    if args.write_new and not args.diff:
+        parser.error("--write-new requires --diff")
 
     root = Path(args.repo).resolve()
     if not root.is_dir():
@@ -106,7 +115,33 @@ def main() -> int:
             "- For work that crosses sessions or components, create or update a plan from `docs/plans/TEMPLATE.md` in `docs/plans/active/`.\n"
             "- The first time you work here, register once in `docs/agents/REGISTRY.md` — no maintenance afterwards; when a session ends, compact its state into the plan's Next action."
             if profile == "full" else
-            "- If work grows beyond one agent or session, add the plans and registry branches and declare them in `.ai/harness.json` before relying on them."
+            "- If work grows beyond one agent or session, re-run the scaffold with `--profile full` to add the plans and registry branches before relying on them."
+        ),
+        "PROFILE_SOURCES_LINE": (
+            "`.ai/harness.json` and linked repository artifacts"
+            if profile == "full" else "linked repository artifacts"
+        ),
+        "PROFILE_START_HERE": (
+            "- Read `.ai/harness.json` for canonical paths and commands.\n"
+            "- Read `docs/INDEX.md` to locate the canonical knowledge that this profile actually provides."
+            if profile == "full" else
+            "- Read `docs/INDEX.md` to locate project knowledge. This profile is documentation-only: "
+            "no manifest, no machine layer — re-run the scaffold with `--profile full` when the project needs validation."
+        ),
+        "PROFILE_SKILLS_LINE": (
+            "- Canonical repo-local skills: `.agents/skills/`; generate Claude mirrors with `tools/ai/sync_skill_adapters.py`"
+            if profile == "full" else
+            "- No machine layer in this profile; re-run the scaffold with `--profile full` to add `.ai/` and `tools/ai/` when the project needs validation."
+        ),
+        "PROFILE_SYNC_LINE": (
+            "- After changing `.agents/skills/`, run `python tools/ai/sync_skill_adapters.py . --apply`, then validate."
+            if profile == "full" else ""
+        ),
+        "PROFILE_INVARIANTS": (
+            "- Harness validation: `python tools/ai/validate_harness.py .`\n"
+            "- TODO: register project-native architecture checks in `.ai/harness.json`."
+            if profile == "full" else
+            "- No machine layer in this profile; re-run the scaffold with `--profile full` to add `.ai/` and `tools/ai/` when the project needs validation."
         ),
         "PROFILE_DONE": (
             "- The active plan records final verification and leaves `docs/plans/active/` when complete."
@@ -114,6 +149,33 @@ def main() -> int:
             "- Any handoff state needed for unfinished work is preserved in a declared canonical artifact."
         ),
     }
+
+    if args.diff:
+        same = differ = missing = 0
+        for source, relative in template_files(profile):
+            target = root / relative
+            if not target.exists():
+                missing += 1
+                print(f"  missing  {relative.as_posix()}  (created by --apply)")
+                continue
+            if source.suffix.lower() in {".md", ".json", ".py", ""}:
+                rendered = render(source.read_text(encoding="utf-8"), replacements).encode("utf-8")
+            else:
+                rendered = source.read_bytes()
+            if target.read_bytes() == rendered:
+                same += 1
+                continue
+            differ += 1
+            print(f"  DIFFER   {relative.as_posix()}")
+            if args.write_new:
+                suggested = target.with_name(target.name + ".suggested")
+                if suggested.exists():
+                    print(f"  skip     {suggested.name} already exists")
+                else:
+                    suggested.write_bytes(rendered)
+                    print(f"  wrote    {suggested.name}")
+        print(f"\nDiff summary: {same} same, {differ} differ, {missing} missing (missing files are created by --apply).")
+        return 0
 
     def is_link_like(path: Path) -> bool:
         try:
@@ -222,6 +284,10 @@ def main() -> int:
         else:
             target.write_bytes(content)
         created += 1
+    if profile == "full":
+        active = root / "docs" / "plans" / "active"
+        active.mkdir(parents=True, exist_ok=True)
+        (active / ".gitkeep").write_bytes(b"")  # keep the empty dir in git
     print(f"\nCreated {created} files. Preserved {len(conflicts)} existing files.")
     print("Validate with: python tools/ai/validate_harness.py .")
     if mode == "brownfield":

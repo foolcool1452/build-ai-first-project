@@ -36,8 +36,7 @@ SUPPORTED_CHECKS = {
 }
 COMMAND_ORDER = ("architecture", "docs", "test", "lint", "typecheck", "build")
 PLAN_HEADINGS = (
-    "Goal", "Scope and non-goals", "Progress", "Decisions", "Verification",
-    "Risks and blockers", "Next action",
+    "Goal", "Progress", "Next action",
 )
 CANONICAL_STATUSES = {"verified", "observed", "proposed", "generated"}
 ACTIVE_PLAN_STATUSES = {"active", "blocked", "paused"}
@@ -502,25 +501,13 @@ class Validator:
         placeholders: list[Path] = []
         for path in self.canonical_markdown_paths():
             text = read_text_sig(path)
-            for field in ("Status", "Last verified", "Sources"):
-                if not re.search(rf"(?mi)^{re.escape(field)}:\s*\S", text):
-                    self.add("error", "METADATA_MISSING", f"Canonical document is missing '{field}:' metadata.", path)
-            match = re.search(r"(?mi)^Last verified:\s*(\S.*?)\s*$", text)
+            if not re.search(r"(?mi)^Status:\s*\S", text):
+                self.add("error", "METADATA_MISSING", "Canonical document is missing 'Status:' metadata.", path)
             status = re.search(r"(?mi)^Status:\s*(\S+)\s*$", text)
             if status and status.group(1).lower() not in CANONICAL_STATUSES:
                 self.add("error", "METADATA_STATUS", f"Unknown canonical document status: {status.group(1)}", path)
             if re.search(r"(?i)\bTODO\b", text):
                 placeholders.append(path)
-            if match:
-                raw_date = match.group(1)
-                if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", raw_date):
-                    self.add("error", "VERIFICATION_DATE", "Last verified must use YYYY-MM-DD.", path)
-                    continue
-                try:
-                    if datetime.strptime(raw_date, "%Y-%m-%d").date() > date.today():
-                        self.add("error", "FUTURE_VERIFICATION", "Last verified date is in the future.", path)
-                except ValueError:
-                    self.add("error", "VERIFICATION_DATE", "Last verified must use YYYY-MM-DD.", path)
         if placeholders:
             names = ", ".join(path.relative_to(self.root).as_posix() for path in placeholders[:4])
             suffix = f", and {len(placeholders) - 4} more" if len(placeholders) > 4 else ""
@@ -528,9 +515,8 @@ class Validator:
                 "warning", "PLACEHOLDER_CONTENT",
                 f"{len(placeholders)} canonical document(s) still contain TODO placeholders: {names}{suffix}.",
             )
-        # Generated-document branches stay link- and metadata-checked via the
-        # generic canonical scan above; their generator declarations are a
-        # project-native convention, not something this validator enforces.
+        # `Last verified:` and `Sources:` remain template conventions — good
+        # hygiene, deliberately not validator-enforced.
 
     def check_plans(self):
         knowledge = self.manifest.get("knowledge", {})

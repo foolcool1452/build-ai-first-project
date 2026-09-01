@@ -1,11 +1,10 @@
 # Agent Guide
 
-{{PROJECT_NAME}} is maintained through repository-local specifications, executable checks, and resumable plans. Keep this file as a short map and hard-constraint surface.
+{{PROJECT_NAME}} is maintained as an agent-legible repository: a short map, layered knowledge, and executable checks where the project needs them.
 
 ## Start here
 
-- Read `.ai/harness.json` for canonical paths and commands.
-- Read `docs/INDEX.md` to locate the canonical knowledge that this profile actually provides.
+{{PROFILE_START_HERE}}
 - Read the nearest scoped `AGENTS.md` before changing files under a subsystem.
 - Treat current code and tests as implementation evidence; treat verified product specifications as intended behavior.
 
@@ -14,7 +13,7 @@
 - Product intent: `docs/product/index.md`
 - Current architecture: `ARCHITECTURE.md`
 {{PROFILE_PROJECT_MAP}}
-- Canonical repo-local skills: `.agents/skills/`; generate Claude mirrors with `tools/ai/sync_skill_adapters.py`
+{{PROFILE_SKILLS_LINE}}
 - Decisions, operations, quality, and generated knowledge are intentionally omitted; create and declare a branch when first needed.
 
 ## Hard constraints
@@ -29,8 +28,7 @@
 
 {{PROFILE_WORKFLOW}}
 - Record discoveries in the closest artifact, then reconcile product intent, architecture, decisions, tests, and generated docs before completion.
-- Run targeted checks first and the required manifest commands before declaring completion.
-- After changing `.agents/skills/`, run `python tools/ai/sync_skill_adapters.py . --apply`, then validate.
+{{PROFILE_SYNC_LINE}}
 - Review the final diff for scope, regressions, stale documentation, generated-file drift, and private data.
 
 ## Definition of done

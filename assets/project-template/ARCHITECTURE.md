@@ -33,8 +33,7 @@ Describe the system boundary and primary users in two or three sentences. Do not
 
 ## Enforced invariants
 
-- Harness validation: `python tools/ai/validate_harness.py .`
-- TODO: register project-native architecture checks in `.ai/harness.json`.
+{{PROFILE_INVARIANTS}}
 
 ## Proposed changes
 

@@ -89,11 +89,17 @@ Use flow-forward for strong audit history, living specs for stable product contr
 
 A work round is the standard loop for non-trivial changes: **Open** (state the goal and how it will be proven) → **Execute** → **Verify** → **Review** (one zero-context review subagent) → **Close** (reconcile docs). Repeat execute/review until the review comes back clean. Single-file cosmetic edits skip rounds and go straight through the Change workflow.
 
+**Round sizing**: one round ≈ one focused session — an increment a human could review in under two hours. Larger work splits into multiple rounds under the same plan; if a round keeps growing, the goal or the partition was wrong.
+
+**Recon (optional, before Open)**: for unfamiliar areas, spawn read-only research subagents (0-2; more needs a written reason in the entry) to map files, interfaces, and prior art. Their findings are compressed into the entry's Research line — conclusions, not dumps. Research subagents never write; spending on precise research is the cheapest token you will spend.
+
 ```text
 session start
       │
 round? ──no──► Change workflow (small edits, no round entry)
       │yes
+Recon? ──yes── read-only research subagents; findings → entry
+      │
 Open ──── entry: goal + how this round is proven
       │
 Execute ─ make the change (writing subagents allowed; partition if parallel)

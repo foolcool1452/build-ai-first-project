@@ -16,6 +16,7 @@ Use Python 3.11 or newer for the bundled audit, scaffold, sync, and validation s
 2. **Initialize a new project**: Follow the greenfield workflow in `references/workflows.md`, preview with `scripts/scaffold_project.py <repo> --mode greenfield --profile auto`, then rerun with `--apply` after reviewing the selected profile and file operations.
 3. **Retrofit an existing project**: Follow the brownfield workflow in `references/workflows.md`. Audit first, establish a passing baseline, preview `--mode brownfield`, and add constraints incrementally.
 4. **Validate or repair a harness**: Run `scripts/validate_project.py <repo>`. Read `references/validation.md` before changing severity, budgets, or freshness rules.
+5. **Skill review (on explicit request only)**: Review a project's repo-local skills against `references/skill-review.md` and deliver improvement suggestions. Never run unprompted; findings are advisory.
 
 Read `references/target-architecture.md` before creating or reorganizing project artifacts. Read `references/adapters.md` when Codex, Claude Code, Kimi Code, monorepos, or repo-local skills are in scope.
 

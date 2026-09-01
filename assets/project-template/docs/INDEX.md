@@ -2,7 +2,7 @@
 
 Status: verified
 Last verified: {{DATE}}
-Sources: `.ai/harness.json` and linked repository artifacts
+Sources: {{PROFILE_SOURCES_LINE}}
 
 ## Routing table
 
@@ -11,7 +11,7 @@ Sources: `.ai/harness.json` and linked repository artifacts
 | Intended product behavior | [Product contract](product/index.md) |
 | Current system structure | [System map](../ARCHITECTURE.md) |
 {{PROFILE_ROUTING_ROWS}}
-| Decision records, operations, quality, generated knowledge | Intentionally omitted; create the branch and declare it in `.ai/harness.json` when first needed. |
+| Decision records, operations, quality, generated knowledge | Intentionally omitted; create the branch when first needed. |
 
 ## Reading rule
 

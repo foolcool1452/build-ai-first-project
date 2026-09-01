@@ -92,40 +92,38 @@ def main() -> int:
         assert "Profile: lite (audit recommendation; score 0/3)" in lite_preview.stdout
         assert "+0 no full-profile complexity signals detected" in lite_preview.stdout
         run(SCAFFOLD, str(lite), "--mode", "greenfield", "--apply")
-        lite_manifest = json.loads((lite / ".ai/harness.json").read_text(encoding="utf-8"))
-        assert lite_manifest["project"]["harnessProfile"] == "lite"
-        assert not {"plans", "agents"} & set(lite_manifest["knowledge"])
-        assert "plan-state" not in lite_manifest["validation"]["requiredChecks"]
-        assert "agents" not in lite_manifest["validation"]["requiredChecks"]
-        for omitted in (
-            "docs/agents/REGISTRY.md",
-            "docs/plans/TEMPLATE.md", "docs/plans/active/README.md",
-        ):
-            assert not (lite / omitted).exists(), omitted
-        assert (lite / ".ai/.gitignore").read_text(encoding="utf-8") == "reports/\ntmp/\n"
-        lite_guidance = (lite / "AGENTS.md").read_text(encoding="utf-8")
+        lite_files = sorted(p.relative_to(lite).as_posix() for p in lite.rglob("*") if p.is_file())
+        assert lite_files == [
+            "AGENTS.md", "ARCHITECTURE.md", "CLAUDE.md",
+            "docs/INDEX.md", "docs/product/index.md",
+        ], lite_files
         for ghost_route in (
             "docs/architecture/index.md", "docs/architecture/decisions/",
             ".agents/skills/README.md", "docs/agents/REGISTRY.md",
-            "docs/plans/TEMPLATE.md",
+            "docs/plans/TEMPLATE.md", ".ai/harness.json", ".ai/.gitignore",
         ):
-            assert ghost_route not in lite_guidance
-        for ghost_doc in ("ARCHITECTURE.md", "docs/INDEX.md"):
+            assert ghost_route not in lite_files, ghost_route
+        for ghost_doc in ("AGENTS.md", "ARCHITECTURE.md", "docs/INDEX.md"):
             ghost_text = (lite / ghost_doc).read_text(encoding="utf-8")
             assert "docs/plans/active/" not in ghost_text, ghost_doc
+            assert ".ai/harness.json" not in ghost_text, ghost_doc
         assert_no_template_tokens(lite)
-        run(VALIDATE, str(lite))
+        # Documentation-only lite has no machine layer: audit works, validate
+        # is not applicable (no manifest → MANIFEST_MISSING by design).
+        lite_audit = json.loads(run(AUDIT, str(lite), "--format", "json").stdout)
+        assert lite_audit["verification"]["harnessManifest"] is False
+        assert not any(f["code"] == "HARNESS_PRESENT" for f in lite_audit["findings"])
         lite_snapshot = {path.relative_to(lite): path.read_bytes() for path in lite.rglob("*") if path.is_file()}
         run(SCAFFOLD, str(lite), "--mode", "greenfield", "--profile", "lite", "--apply")
         assert lite_snapshot == {path.relative_to(lite): path.read_bytes() for path in lite.rglob("*") if path.is_file()}
 
-        # Official promotion path: lite landing, then full --apply adds the
-        # coordination files. The manifest stays lite until reconciled, and
-        # validation must surface the pending promotion instead of staying silent.
+        # Official promotion path: a docs-only lite grows into full, which adds
+        # the machine layer (.ai + tools) and the coordination surfaces.
         run(SCAFFOLD, str(lite), "--mode", "greenfield", "--profile", "full", "--apply")
+        promotion_manifest = json.loads((lite / ".ai/harness.json").read_text(encoding="utf-8"))
+        assert promotion_manifest["project"]["harnessProfile"] == "full"
         promotion_report = run(VALIDATE, str(lite))
         assert promotion_report.returncode == 0
-        assert "PROFILE_PROMOTION_PENDING" in promotion_report.stdout
 
         green = base / "full-greenfield"
         green.mkdir()
@@ -144,12 +142,13 @@ def main() -> int:
             "AGENTS.md", "CLAUDE.md", "ARCHITECTURE.md",
             "docs/INDEX.md", "docs/product/index.md",
             "docs/agents/REGISTRY.md",
-            "docs/plans/TEMPLATE.md", "docs/plans/active/README.md",
+            "docs/plans/TEMPLATE.md", "docs/plans/active/.gitkeep",
             ".ai/harness.json",
-            ".ai/.gitignore",
             "tools/ai/sync_skill_adapters.py", "tools/ai/validate_harness.py",
         ):
             assert (green / tracked).is_file(), tracked
+        assert not (green / ".ai/.gitignore").exists()
+        assert not (green / "docs/plans/active/README.md").exists()
         plan_template_text = (green / "docs/plans/TEMPLATE.md").read_text(encoding="utf-8")
         assert "## Rounds" in plan_template_text and "### Round 1" in plan_template_text
         assert "- Verify:" in plan_template_text and "- Review:" in plan_template_text
@@ -224,7 +223,7 @@ def main() -> int:
 
         quoted_name = base / "quoted-name"
         quoted_name.mkdir()
-        run(SCAFFOLD, str(quoted_name), "--project-name", 'bad"name', "--apply")
+        run(SCAFFOLD, str(quoted_name), "--project-name", "bad\"name", "--profile", "full", "--apply")
         quoted_manifest = json.loads((quoted_name / ".ai/harness.json").read_text(encoding="utf-8"))
         assert quoted_manifest["project"]["name"] == 'bad"name'
         run(VALIDATE, str(quoted_name))
@@ -264,7 +263,7 @@ def main() -> int:
             '[project]\nname = "demo"\nversion = "0.1.0"\n[tool.pytest.ini_options]\n',
             encoding="utf-8",
         )
-        run(SCAFFOLD, str(python_repo), "--mode", "brownfield", "--apply")
+        run(SCAFFOLD, str(python_repo), "--mode", "brownfield", "--profile", "full", "--apply")
         python_manifest = json.loads((python_repo / ".ai/harness.json").read_text(encoding="utf-8"))
         python_argv = python_manifest["commands"]["test"][0]["argv"]
         assert python_argv == ["python", "-m", "pytest"]
@@ -466,23 +465,9 @@ def main() -> int:
 
         architecture = brown / "ARCHITECTURE.md"
         original_architecture = architecture.read_text(encoding="utf-8")
-        architecture.write_text(
-            original_architecture.replace(
-                next(line for line in original_architecture.splitlines() if line.startswith("Last verified:")),
-                "Last verified: yesterday",
-            ),
-            encoding="utf-8",
-        )
-        bad_date = run(VALIDATE, str(brown), expected=1)
-        assert "VERIFICATION_DATE" in bad_date.stdout
-        architecture.write_text(original_architecture, encoding="utf-8")
-
-        architecture.write_text(original_architecture.replace("Status: observed", "Status: imaginary").replace(
-            next(line for line in original_architecture.splitlines() if line.startswith("Last verified:")),
-            "Last verified: 2026-99-99",
-        ), encoding="utf-8")
+        architecture.write_text(original_architecture.replace("Status: observed", "Status: imaginary"), encoding="utf-8")
         metadata_report = run(VALIDATE, str(brown), expected=1)
-        assert "METADATA_STATUS" in metadata_report.stdout and "VERIFICATION_DATE" in metadata_report.stdout
+        assert "METADATA_STATUS" in metadata_report.stdout
         architecture.write_text(original_architecture, encoding="utf-8")
 
         spaced = brown / "docs/space file.md"
@@ -546,7 +531,7 @@ def main() -> int:
 
         guarded = base / "guarded-sync"
         guarded.mkdir()
-        run(SCAFFOLD, str(guarded), "--mode", "greenfield", "--apply")
+        run(SCAFFOLD, str(guarded), "--mode", "greenfield", "--profile", "full", "--apply")
         guarded_skill = guarded / ".agents/skills/example"
         guarded_skill.mkdir(parents=True)
         (guarded_skill / "SKILL.md").write_text(
@@ -673,7 +658,7 @@ def main() -> int:
             (component_skill / "SKILL.md").write_text(
                 "---\nname: component-skill\ndescription: Component workflow.\n---\n", encoding="utf-8"
             )
-            run(SCAFFOLD, str(monorepo), "--mode", "brownfield", "--apply")
+            run(SCAFFOLD, str(monorepo), "--mode", "brownfield", "--profile", "full", "--apply")
             nested_sync = run(SCRIPTS / "sync_skill_adapters.py", str(monorepo), "--apply", expected=1)
             assert "not cross-tool portable" in nested_sync.stdout
             assert not (component / ".claude/skills/component-skill").exists()
@@ -739,7 +724,7 @@ def main() -> int:
 
         build_ancestor = base / "build/repo"
         build_ancestor.mkdir(parents=True)
-        run(SCAFFOLD, str(build_ancestor), "--apply")
+        run(SCAFFOLD, str(build_ancestor), "--profile", "full", "--apply")
         with (build_ancestor / "docs/INDEX.md").open("a", encoding="utf-8") as handle:
             handle.write("\n[broken](missing-under-build.md)\n")
         build_link_report = run(VALIDATE, str(build_ancestor), expected=1)
