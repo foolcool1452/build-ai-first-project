@@ -169,8 +169,8 @@ def main() -> int:
             print(f"  DIFFER   {relative.as_posix()}")
             if args.write_new:
                 suggested = target.with_name(target.name + ".suggested")
-                if suggested.exists():
-                    print(f"  skip     {suggested.name} already exists")
+                if suggested.exists() or is_link_like(suggested) or is_link_like(suggested.parent):
+                    print(f"  skip     {suggested.name} already exists or unsafe path")
                 else:
                     suggested.write_bytes(rendered)
                     print(f"  wrote    {suggested.name}")
@@ -288,8 +288,13 @@ def main() -> int:
         active = root / "docs" / "plans" / "active"
         active.mkdir(parents=True, exist_ok=True)
         (active / ".gitkeep").write_bytes(b"")  # keep the empty dir in git
+        created += 1
     print(f"\nCreated {created} files. Preserved {len(conflicts)} existing files.")
-    print("Validate with: python tools/ai/validate_harness.py .")
+    if profile == "full":
+        print("Validate with: python tools/ai/validate_harness.py .")
+    else:
+        print("This lite landing is documentation-only: no manifest, no machine layer. "
+              "Re-run with --profile full when the project needs validation.")
     if mode == "brownfield":
         print("Brownfield note: replace TODOs only with code-backed observations; keep proposed changes in active plans.")
     return 0

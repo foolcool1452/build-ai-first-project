@@ -31,7 +31,7 @@ Read `references/target-architecture.md` before creating or reorganizing project
 - Make commands deterministic, non-interactive, and runnable with argument arrays rather than shell strings when possible.
 - Encode strict invariants in tests, linters, hooks, schemas, or CI. Use prose for navigation and judgment.
 - Make long work resumable through versioned execution plans; do not commit raw chat summaries, private session state, or throwaway handoff notes.
-- Treat `lite` and `full` as attention budgets, not quality levels: both keep the same safety and validation core.
+- Treat `lite` and `full` as attention budgets, not quality levels: same safety posture everywhere; the machine layer (`.ai/` + `tools/ai/`) exists only in full.
 - Validate changes with the repository's own checks and review the final diff.
 
 ## Core workflow
@@ -61,7 +61,7 @@ Place each fact in exactly one primary surface:
 
 - Choose and record the specification persistence model: `living`, `flow-forward`, or `flow-back`.
 - Choose `lite` for small single-agent, single-session work and `full` for cross-session, multi-agent, monorepo, regulated, or broad migration work. Use the audit recommendation as evidence, not authority; override it when known intent requires a different profile.
-- Define canonical artifacts, generated artifacts, commands, budgets, and freshness policy in `.ai/harness.json`.
+- Define canonical artifacts, commands, and validation policy in `.ai/harness.json`.
 - For monorepos, define repository-wide rules at the root and put component-specific guidance nearest its scope. Keep cross-tool auto-discovered skills at the repository-root `.agents/skills/`; namespace component workflows there because Kimi project discovery is rooted at the nearest `.git` directory.
 - Keep repo-local skills canonical under `.agents/skills/`; generate and validate Claude mirrors with `tools/ai/sync_skill_adapters.py`.
 - Present the proposed file operations and any conflicts before applying them.

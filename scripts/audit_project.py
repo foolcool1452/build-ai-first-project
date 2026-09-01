@@ -23,6 +23,7 @@ SKIP_DIRS = {
     ".git", ".hg", ".svn", ".idea", ".vscode", "node_modules", "vendor",
     "dist", "build", "target", ".venv", "venv", "__pycache__", ".next",
     ".turbo", "coverage", ".pytest_cache", ".mypy_cache", ".ruff_cache",
+    ".android-sdk", "third_party", "third-party",
 }
 
 NON_LIVE_PARTS = {

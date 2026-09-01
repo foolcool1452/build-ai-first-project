@@ -14,7 +14,7 @@
 
 Optimize for agent legibility, deterministic verification, progressive disclosure, recovery after context loss, and tool neutrality. Do not optimize for maximum documentation volume.
 
-Profiles change the initial attention and coordination footprint, never the safety level. Every project receives the same routing, intent, architecture, adapter, command, and validation core.
+Profiles change the initial attention and coordination footprint, never the safety posture. The full profile receives the routing, intent, architecture, adapter, and machine core (manifest + validator); the lite profile is documentation-only and has no machine layer to protect.
 
 Use two linked truth lanes:
 
@@ -49,7 +49,25 @@ repo/
         `-- validate_harness.py      # validation entrypoint; imports the paired sync helper
 ```
 
-The full profile adds `docs/plans/{TEMPLATE.md,active/README.md}`, and `docs/agents/REGISTRY.md`. Everything else (decision records, operations, quality, generated knowledge, extra workflows) is created only when a real need appears and is then declared in `.ai/harness.json`.
+The full profile adds the machine layer on top of that documentation core:
+
+```text
+repo/
+|-- .ai/
+|   `-- harness.json                # machine-readable control plane
+|-- docs/
+|   |-- agents/
+|   |   `-- REGISTRY.md             # one-time roster: who worked here
+|   `-- plans/
+|       |-- TEMPLATE.md
+|       `-- active/                 # resumable multi-step work (dir kept via .gitkeep)
+`-- tools/
+    `-- ai/
+        |-- sync_skill_adapters.py   # generate/check Claude skill mirrors
+        `-- validate_harness.py      # validation entrypoint; imports the paired sync helper
+```
+
+Everything else (decision records, operations, quality, generated knowledge, extra workflows) is created only when a real need appears and is then declared in `.ai/harness.json`.
 
 ## Profile selection
 
@@ -94,14 +112,13 @@ Sources: path, command, or plan identifier
 
 Use plans only for changes that cross sessions, components, or review checkpoints. Required headings:
 
-- Status
+- Status (line)
 - Goal
-- Scope and non-goals
 - Progress
-- Decisions
-- Verification
-- Risks and blockers
 - Next action
+
+Optional sections (present in the template, never enforced): Scope and
+non-goals, Decisions, Verification, Risks and blockers.
 
 Update the plan during work. When complete, preserve durable rationale in an ADR or canonical doc; then archive or delete the plan according to the chosen persistence model.
 
@@ -128,7 +145,7 @@ Generated files must state their generator and source inputs; keeping them repro
 
 There is no schema file to drift: the validator enforces the contract with hand-written checks (`MANIFEST_CONTRACT` findings name the violated field directly).
 
-The `knowledge.index`, `knowledge.architecture`, and `knowledge.product` paths are core. Full additionally declares `knowledge.plans`, `knowledge.agents`, and `knowledge.tasks`; lite omits them. `operations`, `quality`, and `generated` are omitted in both profiles. Declare a path only when the project creates that branch, and keep the routing index consistent with intentional omissions.
+The `knowledge.index`, `knowledge.architecture`, and `knowledge.product` paths are core. Full additionally declares `knowledge.plans` and `knowledge.agents`; lite omits both. `operations`, `quality`, and `generated` are omitted in both profiles. Declare a path only when the project creates that branch, and keep the routing index consistent with intentional omissions.
 
 Do not put secrets, credentials, user-specific absolute paths, or shell pipelines in the manifest.
 
