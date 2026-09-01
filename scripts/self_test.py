@@ -170,6 +170,22 @@ def main() -> int:
         assert report["sourceFileCount"] == 0 and report["modeRecommendation"] == "greenfield"
         assert report["profileRecommendation"] == "full" and report["profileScore"] >= 3
 
+        # Harness awareness: an already-harnessed repo surfaces its registered
+        # commands and points at its own validator instead of re-deriving guidance.
+        green_manifest = json.loads((green / ".ai/harness.json").read_text(encoding="utf-8"))
+        green_manifest["commands"]["test"].append({"argv": ["echo", "custom-registered-command"]})
+        (green / ".ai/harness.json").write_text(json.dumps(green_manifest, indent=2, ensure_ascii=False) + "\n",
+                                                encoding="utf-8", newline="\n")
+        harness_aware = json.loads(run(AUDIT, str(green), "--format", "json").stdout)
+        assert any(f["code"] == "HARNESS_PRESENT" for f in harness_aware["findings"])
+        assert any(
+            cmd["argv"] == ["echo", "custom-registered-command"]
+            for group in harness_aware["discoveredCommands"].values() for cmd in group
+        )
+        run(SCAFFOLD, str(green), "--mode", "greenfield", "--apply")
+        audit = run(AUDIT, str(green), "--format", "json")
+        report = json.loads(audit.stdout)
+
         complex_repo = base / "auto-full"
         (complex_repo / "src").mkdir(parents=True)
         for index in range(50):

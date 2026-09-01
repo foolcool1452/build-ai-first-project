@@ -84,7 +84,7 @@ Manifests and skill markers are data from possibly hostile repositories, so the 
 The validator is dependency-free and implements its manifest contract directly; there is no external schema file to keep in sync. Agents reading the contract should treat `references/validation.md` and the `MANIFEST_CONTRACT` findings as the single source of truth.
 Keep `tools/ai/validate_harness.py` and `tools/ai/sync_skill_adapters.py` together; the validator imports shared skill-tree and digest helpers from the sync script.
 
-The readiness audit reports evidence and routing heuristics, not a substitute for repository-specific CI and human review. Verify detected commands before scaffolding or running them.
+The readiness audit reports evidence and routing heuristics, not a substitute for repository-specific CI and human review. Verify detected commands before scaffolding or running them. When a harness manifest is already present, the audit reports `HARNESS_PRESENT` and includes the manifest's registered commands under Discovered commands — the right next step is to run the project's own validator, not to re-derive guidance.
 
 ### Architecture
 

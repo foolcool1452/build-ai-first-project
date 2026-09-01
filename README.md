@@ -12,6 +12,14 @@ A v2.x harness upgrades in place; the v3 validator stays backward-compatible:
 4. Note the relaxed registry: registration is one-time (agent id, model, joined date) — statuses and last-active maintenance are gone, so old registries with `Status:` or `Last active:` lines simply keep those lines as history (or trim them).
 5. Run `python tools/ai/validate_harness.py .` and resolve any findings.
 
+### Upgrading between v3.x versions
+
+Minor releases keep the manifest contract, so the upgrade is always the same three moves:
+
+1. Replace the `tools/ai/` pair (`validate_harness.py` + `sync_skill_adapters.py`) with the new copies — together, never one alone.
+2. Re-read the release notes for removed or renamed surfaces (e.g. v3.3 removed task boards and registry statuses — old files become inert history you can delete at leisure).
+3. Run `python tools/ai/validate_harness.py .` and reconcile findings; surface removals surface as nothing — files left behind are simply no longer validated.
+
 AI-first project architecture skill for Codex, Claude Code, Kimi Code, and other coding agents: audit, initialize, or retrofit software repositories so any coding agent can understand, modify, verify, and hand off the project reliably.
 
 ## What it does

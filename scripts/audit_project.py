@@ -272,6 +272,22 @@ def discover_commands(root: Path) -> dict[str, list[dict[str, Any]]]:
             if name and not discovered[group]:
                 discovered[group].append(command(["make", name], required=group in {"test", "lint", "typecheck"}))
 
+    # An already-harnessed repository registers its commands in the manifest;
+    # surface them so the audit reports what the project actually runs.
+    manifest = root / ".ai" / "harness.json"
+    if manifest.is_file():
+        try:
+            data = json.loads(manifest.read_text(encoding="utf-8", errors="replace"))
+        except (OSError, UnicodeError, ValueError):
+            data = None
+        registered = data.get("commands") if isinstance(data, dict) else None
+        if isinstance(registered, dict):
+            for group, items in registered.items():
+                if isinstance(group, str) and isinstance(items, list):
+                    discovered.setdefault(group, []).extend(
+                        item for item in items if isinstance(item, dict)
+                    )
+
     for group in discovered:
         unique: list[dict[str, Any]] = []
         seen: set[tuple[str, ...]] = set()
@@ -387,6 +403,22 @@ def analyze(root: Path) -> dict[str, Any]:
     )
 
     findings: list[dict[str, str]] = []
+    harness_state: dict[str, Any] = {}
+    harness_manifest = root / ".ai" / "harness.json"
+    if harness_manifest.is_file():
+        try:
+            harness_state = json.loads(harness_manifest.read_text(encoding="utf-8", errors="replace"))
+        except (OSError, UnicodeError, ValueError):
+            harness_state = None
+        if not isinstance(harness_state, dict):
+            harness_state = {}
+    if harness_state:
+        findings.append({
+            "severity": "info",
+            "code": "HARNESS_PRESENT",
+            "message": "An AI-first harness manifest is already present — validate with the project's own "
+                       "tools/ai/validate_harness.py; its registered commands appear under Discovered commands.",
+        })
     if not guidance:
         findings.append({"severity": "high", "code": "NO_GUIDANCE", "message": "No repository agent entrypoint was found."})
     if "AGENTS.md" in guidance and (guidance["AGENTS.md"]["lines"] or 0) > 160:
@@ -398,7 +430,15 @@ def analyze(root: Path) -> dict[str, Any]:
     if not verification["tests"]:
         findings.append({"severity": "high", "code": "NO_TEST_EVIDENCE", "message": "No conventional test tree was detected; verify whether behavior has an executable oracle."})
     if not verification["architectureCheck"]:
-        findings.append({"severity": "medium", "code": "PASSIVE_ARCHITECTURE", "message": "No project-native architecture boundary check was detected."})
+        architecture = harness_state.get("architecture")
+        if isinstance(architecture, dict) and architecture.get("enforced") is True:
+            findings.append({
+                "severity": "info",
+                "code": "ARCHITECTURE_ENFORCED",
+                "message": "Architecture is declared enforced in the harness manifest; confirm with the registered architecture command.",
+            })
+        else:
+            findings.append({"severity": "medium", "code": "PASSIVE_ARCHITECTURE", "message": "No project-native architecture boundary check was detected."})
     if not docs["activePlans"]:
         findings.append({"severity": "medium", "code": "NO_CONTINUITY", "message": "No versioned active-plan surface was detected for resumable work."})
     if greenfield:
