@@ -53,9 +53,16 @@ Copy this directory into your agent's skills location:
 |---|---|
 | Codex | `~/.codex/skills/build-ai-first-project` |
 | Claude Code | `~/.claude/skills/build-ai-first-project` |
-| Kimi Code | `~/.kimi-code/skills/build-ai-first-project` |
+| Kimi Code | `~/.kimi-code/skills/build-ai-first-project` **or** `~/.agents/skills/build-ai-first-project` (the shared cross-tool dir Kimi also scans) |
+| Any tool scanning `~/.agents/skills/` | same as above |
 
-Requires Python 3.11+ for the bundled scripts. No third-party dependencies.
+On Windows, a **junction** to a single canonical copy keeps every tool in sync (this is how this machine is set up — one physical copy under `~/.codex/skills/`, junctioned from the others):
+
+```powershell
+New-Item -ItemType Junction -Path "$env:USERPROFILE\.agents\skills\build-ai-first-project" -Target "$env:USERPROFILE\.codex\skills\build-ai-first-project"
+```
+
+Requires Python 3.11+ for the bundled scripts. No third-party dependencies. The skill is picked up when a session starts — restart open sessions to load it.
 
 > **Windows note:** a bare `python` may resolve to the Microsoft Store alias, which can hang headless sessions. Prefer `py -3` or the full interpreter path.
 
