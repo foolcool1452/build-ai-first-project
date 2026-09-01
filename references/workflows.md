@@ -87,30 +87,42 @@ Use flow-forward for strong audit history, living specs for stable product contr
 
 ## Work rounds
 
-A work round is the standard unit for non-trivial changes: **Open** (commit the round's goal, its verification command, and the red baseline) → **Execute** → **Verify** → **Review** (review subagent re-runs verification) → repeat until convergence → **Close** (reconcile docs). Rounds are required when a change alters behavior, touches the manifest or canonical docs, spans multiple files, or crosses a boundary; single-file cosmetic changes go straight through the Change workflow with a one-line note in an existing plan.
+A work round is the standard loop for non-trivial changes: **Open** (state the goal and how it will be proven) → **Execute** → **Verify** → **Review** (one zero-context review subagent) → **Close** (reconcile docs). Repeat execute/review until the review comes back clean. Single-file cosmetic edits skip rounds and go straight through the Change workflow.
 
-**Round lifecycle**
+```text
+session start — registry active
+      │
+round? ──no──► Change workflow (small edits, no round entry)
+      │yes
+Open ──── entry: goal + how this round is proven
+      │
+Execute ─ make the change (writing subagents allowed; partition if parallel)
+      │
+Verify ── run the proof; it must pass before closing
+      │
+Review ── one zero-context review subagent:
+      │    goal + combined diff + evidence; re-runs the proof
+      │
+findings? ──yes──► disposition (fix, or reject with a reason) ──┐
+      │no / all dispositioned                                   │
+      ◄─────────────────────────────────────────────────────────┘
+Close ──── reconcile docs; mark the entry closed
+      │
+more work? ──yes──► next round (back to Open)
+      │no
+session end ── registry idle; archive the plan or suspend it
+```
 
-1. **Open**: mark the registry `active`; append the round entry: goal, the **Verify command** (anchored on the harness's registered checks plus round-specific assertions), the subagent budget, and the writer partition if writing subagents will run in parallel. Then run Verify once and record the **baseline** — a round is valid only if the baseline fails, or fails to exercise the round's change. A baseline that already passes makes the commitment vacuous: narrow the command or extend it with the missing check before executing anything. Record evidence as one line: `baseline: exit <code> — <summary>`.
-2. **Execute**: make the change in-session or through writing subagents inside the partition. Failed approaches stay in the entry — kept failures are evidence, not embarrassment.
-3. **Verify**: run the Verify command unpiped (pipes can mask exit codes) and append `verified: exit <code> — <summary> — <command>`. The expected trajectory is baseline-red → verified-green.
-4. **Review**: a review subagent with zero shared context receives the goal, the combined diff (including subagent-written changes), the evidence, and the Verify command, and **re-runs the verification itself**. Its output must include a coverage declaration (what it re-ran and read) and append its own line: `reviewer: exit <code> — <summary>`. Findings are accepted or rejected with one-line reasons; an accepted finding lands as a fix plus a re-Verify, or becomes an explicit ticket. A review with zero findings is an anomaly signal, not a pass — re-check the Verify's strength first.
-5. Repeat Execute/Verify/Review until a review returns no new findings. Two consecutive reviews returning only rejected-with-reason findings means the loop is oscillating: stop and re-plan.
-6. **Close**: reconcile specs, architecture, and the routing index (or declare "no reconciliation needed") and mark the entry closed.
+**Rules**
 
-**Subagent rules**
-
-1. **Shared identity, owned output**: subagents may research, review, and write. Everything a subagent changes carries the session's identity — the session owns the result, and subagent-written changes receive the same review as the session's own.
-2. **Partition parallel writers**: record the partition in the entry as `partition: <writer-id> = <path or glob>[; ...]`. Partitions must not overlap and must cover every file the round may touch; the review checks the changed-file list against the partition.
-3. **Budget on the table**: one review subagent per round by default; research subagents are on demand, justified in the entry — research need concentrates in the first round, and precision spent writing the round entry is the cheapest token you will spend. Anything beyond the default requires written justification: extra subagents are bought token-per-performance and must pay for themselves.
-4. **Zero-shared-context review**: the review subagent receives the goal, the combined diff (including subagent-written changes), the evidence, and the Verify command — never the working conversation. Reviewers without shared context catch more and praise less.
-5. **Disposition discipline**: every review finding is accepted or rejected with a one-line reason in the round entry; an accepted finding must land as a fix plus a re-Verify, or become an explicit ticket. Silent drops and "accepted but not done" are how defects ship.
+- **Subagents share the session's identity**: they may research, review, and write; what they change belongs to the session. Parallel writing subagents must have a file/region partition, recorded in the Execute line.
+- **One review subagent per round** by default; anything more needs a written justification in the entry.
+- **The reviewer sees only** the goal, the combined diff, the evidence, and the verification — never the working conversation — and re-runs the proof itself. Zero findings is unusual: re-check whether the verification is strong enough before celebrating.
+- **Every finding is accepted or rejected with a one-line reason.** Accepted means fixed and re-verified, or turned into an explicit ticket.
+- **A session that must end mid-round suspends it**: registry `idle`, entry marked `suspended <date> — <state>`, and the plan's Next action carries the single next safe step. The next writer session resumes the same round; a suspension older than about a week is stale and goes back to Plan.
+- **Closing the last round does not archive a plan**: reconcile docs, set `Status: completed`, move the plan to `docs/plans/completed/`, and re-validate.
 
 **When not to spawn**: the task is answerable with a few direct reads; the change is single-file; a subagent would only re-read what the session already knows; or nothing about the outcome is independently verifiable. Marginal gains from extra agents are often smaller than their coordination and token cost.
-
-**Session boundary**: rounds loop inside one session by default. After two or three closed rounds, prefer a clean break at a round boundary — set the registry to `idle`, let the plan's Next action carry the handoff, and let the next session re-open from the plan: a fresh context with structured handoff outperforms a degrading one. If a session must end mid-round, the round is **suspended**, not closed: set the registry to `idle`, write `Close: suspended <date> — <state reached>`, put the single next safe action in the plan's Next action, and stop. The next session sets `active` and appends `Resumed <date>:` sub-lines to the same entry without rewriting the suspension record. A suspension older than roughly a week — or one whose red baseline has drifted for unrelated reasons — is void: re-open as a new round from Plan.
-
-**Archive**: closing the last round does not archive a plan. To archive: reconcile docs, set `Status: completed`, move the file from `docs/plans/active/` to `docs/plans/completed/` in the same edit, and re-run validation — a completed plan left in `active/` fails validation by design. Suspended round entries that get archived are historical records.
 
 **Division of labor across surfaces**: plans answer "what is being changed and why"; the registry answers "who is here, in what state, and which session is the writer"; boards answer "what small items are queued"; rounds answer "how this piece of work was verified and reviewed".
 

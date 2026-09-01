@@ -35,24 +35,19 @@ State one safe, concrete next action.
 
 ## Rounds
 
-Required for non-trivial changes (behavior, manifest, canonical docs,
-multi-file, or boundary-crossing; single-file cosmetic edits may go straight
-through the Change workflow). One entry per round: Open commits the Verify
-command and its red baseline; Execute/Verify/Review repeat until convergence;
-Close reconciles docs. Reference files with backticked repository-relative
-paths — markdown links in entries must resolve from this directory. Full
-conventions: the harness skill's "Work rounds" section.
+The standard loop for non-trivial changes (single-file cosmetic edits skip
+rounds). One entry per round: state how the round is proven up front, then
+execute → verify → review until the review is clean, and reconcile docs.
+Subagents share this session's identity and may write — partition parallel
+writers by file or region, one review subagent per round by default, and
+give reviewers only the goal, the combined diff, the evidence, and the
+verification.
 
 ### Round 1 — {{DATE}} — <goal>
 
-- Verify: <command anchored on registered checks + round-specific assertions>.
-- Baseline: exit <code> — <why it fails before the change>. A passing
-  baseline makes this round vacuous; narrow or extend the command instead.
-- Research: findings or decision; subagents used: 0 by default (N with
-  justification).
-- Execute: what changed; evidence; partition: <writer = path/glob>[; ...].
-- Review: findings with dispositions; coverage declaration;
-  `reviewer: exit <code> — <summary>` (reviewer re-ran Verify).
-- Close: docs reconciled or "none"; "suspended <date> — <state>" while in
-  progress; or "closed".
+- Verify: <how this round is proven — run it before closing>.
+- Execute: what changed; partition if parallel writing subagents ran.
+- Review: findings; each accepted or rejected with a reason; proof re-ran.
+- Close: docs reconciled or "none"; "suspended <date> — <state>"; or
+  "closed".
 
