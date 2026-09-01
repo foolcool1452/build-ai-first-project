@@ -75,7 +75,7 @@ Auto-selection computes an explainable complexity score from the read-only audit
 | At least 150 repository files | one additional point |
 | Two or more detected implementation languages | 1 |
 | Two or more root build manifests | 1 |
-| Existing active plans, agent registry, or task boards | 3 |
+| Existing active plans or agent registry | 3 |
 | Both tests and CI are present | 1 |
 
 Score 3 or greater recommends `full`; otherwise it recommends `lite`. Audit JSON exposes both `profileScore` and `profileThreshold`; previews show `score/threshold`. An explicit override also prints the audit recommendation it replaced. Thresholds are intentionally conservative and regression-tested: they are a reproducible fallback, not a substitute for product judgment.

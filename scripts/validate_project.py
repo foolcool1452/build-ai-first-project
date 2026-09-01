@@ -41,8 +41,6 @@ PLAN_HEADINGS = (
 )
 CANONICAL_STATUSES = {"verified", "observed", "proposed", "generated"}
 ACTIVE_PLAN_STATUSES = {"active", "blocked", "paused"}
-AGENT_STATUSES = {"active", "idle", "retired"}
-TASK_BOARD_IGNORES = {"readme.md", "template.md"}
 MANIFEST_MAX_BYTES = 2_000_000
 MAX_ARGV_ELEMENT_CHARS = 4096
 
@@ -263,12 +261,12 @@ class Validator:
         elif unknown := sorted(set(checks) - SUPPORTED_CHECKS):
             self.add("error", "UNKNOWN_CHECK", f"Unknown required checks: {', '.join(unknown)}", manifest_path)
         profile = project.get("harnessProfile") if isinstance(project, dict) else None
-        full_paths = {"plans", "agents", "tasks"}
+        full_paths = {"plans", "agents"}
         declared_paths = set(knowledge) if isinstance(knowledge, dict) else set()
         declared_checks = set(checks) if isinstance(checks, list) else set()
         full_shape = full_paths <= declared_paths and {"plan-state", "agents"} <= declared_checks
         if profile == "full" and not full_shape:
-            self.add("error", "MANIFEST_CONTRACT", "The full harness profile must declare plans, agents, and tasks knowledge plus plan-state and agents checks.", manifest_path)
+            self.add("error", "MANIFEST_CONTRACT", "The full harness profile must declare plans and agents knowledge plus plan-state and agents checks.", manifest_path)
         elif profile == "lite" and full_shape:
             self.add("warning", "PROFILE_DRIFT", "The lite manifest now has the complete full-profile shape; update project.harnessProfile to 'full'.", manifest_path)
         if isinstance(guidance, dict):
@@ -276,12 +274,12 @@ class Validator:
         if knowledge is not None:
             for key in ("index", "architecture", "product"):
                 self.repo_path(knowledge.get(key), f"KNOWLEDGE_{key.upper()}")
-            for key in ("plans", "operations", "quality", "generated", "agents", "tasks"):
+            for key in ("plans", "operations", "quality", "generated", "agents"):
                 if key in knowledge:
                     self.repo_path(knowledge.get(key), f"KNOWLEDGE_{key.upper()}")
         if profile == "lite" and isinstance(knowledge, dict):
             undeclared = [
-                name for name, key in (("docs/plans", "plans"), ("docs/agents", "agents"), ("docs/tasks", "tasks"))
+                name for name, key in (("docs/plans", "plans"), ("docs/agents", "agents"))
                 if key not in knowledge and (self.root / name).exists()
             ]
             if undeclared:
@@ -625,19 +623,13 @@ class Validator:
         knowledge = self.manifest.get("knowledge", {})
         if not isinstance(knowledge, dict):
             return
-        validation = self.manifest.get("validation")
-        freshness = validation.get("freshnessDays", 90) if isinstance(validation, dict) else 90
-        if not isinstance(freshness, int) or freshness < 1:
-            freshness = 90
 
         registry_value = knowledge.get("agents")
-        registered: dict[str, Path] = {}
         if registry_value is not None:
             registry = self.repo_path(registry_value, "AGENTS_REGISTRY_PATH", required=False)
             if registry is not None and registry.is_file():
                 text = registry.read_text(encoding="utf-8", errors="replace")
                 seen: dict[str, Path] = {}
-                active_ids: list[str] = []
                 sections, fence_unclosed = self.agent_sections(text)
                 for agent_id, body in sections:
                     key = agent_id.lower()
@@ -650,91 +642,22 @@ class Validator:
                         )
                         continue
                     seen[key] = registry
-                    registered[key] = registry
                     fields = {}
-                    for name in ("Model", "Joined", "Status", "Last active"):
+                    for name in ("Model", "Joined"):
                         field_match = re.search(rf"(?mi)^-\s*{name}:\s*(.*?)\s*$", body)
                         if field_match is not None and field_match.group(1):
                             fields[name] = field_match.group(1)
-                    missing = [name for name in ("Model", "Joined", "Status", "Last active") if name not in fields]
+                    missing = [name for name in ("Model", "Joined") if name not in fields]
                     if missing:
                         self.add("error", "AGENT_FIELD", f"Agent '{agent_id}' is missing required field(s): {', '.join(missing)}.", registry)
-                    status = fields.get("Status")
-                    if status is not None and status.strip().lower() not in AGENT_STATUSES:
-                        self.add(
-                            "error", "AGENT_STATUS",
-                            f"Agent '{agent_id}' has invalid Status '{status}'; use one of: {', '.join(sorted(AGENT_STATUSES))}.",
-                            registry,
-                        )
-                    if status is not None and status.strip().lower() == "active":
-                        active_ids.append(agent_id)
                     joined = self.parsed_agent_date(fields["Joined"], "AGENT_DATE", "Joined", registry) if "Joined" in fields else None
-                    last_active_raw = fields.get("Last active")
-                    last_active = None
-                    if last_active_raw is not None:
-                        last_active = self.parsed_agent_date(last_active_raw, "AGENT_DATE", "Last active", registry)
-                    today = date.today()
-                    if joined is not None and joined > today:
+                    if joined is not None and joined > date.today():
                         self.add("error", "AGENT_DATE", f"Agent '{agent_id}' Joined date is in the future.", registry)
-                    if last_active is not None and last_active > today:
-                        self.add("error", "AGENT_DATE", f"Agent '{agent_id}' Last active date is in the future.", registry)
-                    elif last_active is not None and (today - last_active).days > freshness:
-                        advice = "" if (status or "").strip().lower() == "retired" else " Refresh Last active, set Status to idle/retired, or check docs/plans/active/ for suspended rounds."
-                        self.add(
-                            "warning", "AGENT_STALE",
-                            f"Agent '{agent_id}' was last active {(today - last_active).days} days ago.{advice}",
-                            registry,
-                        )
                 if fence_unclosed:
                     self.add(
                         "warning", "AGENT_FENCE_UNCLOSED",
                         "Registry has an unclosed code fence; agent sections after it are ignored. Close the fence or remove it.",
                         registry,
-                    )
-                if len(active_ids) > 1:
-                    self.add(
-                        "error", "AGENT_MULTIPLE_ACTIVE",
-                        f"{len(active_ids)} agents are marked active ({', '.join(active_ids)}); "
-                        "this repository allows a single writer session — set all but one to idle/retired.",
-                        registry,
-                    )
-
-        tasks_value = knowledge.get("tasks")
-        if tasks_value is None:
-            return
-        tasks_dir = self.repo_path(tasks_value, "TASKS_PATH", required=False)
-        if tasks_dir is None or not tasks_dir.is_dir():
-            return
-        for path in sorted(tasks_dir.glob("*.md")):
-            if path.name.lower() in TASK_BOARD_IGNORES:
-                continue
-            agent_key = path.stem.lower()
-            if agent_key not in registered:
-                self.add(
-                    "warning", "TASK_BOARD_UNREGISTERED",
-                    f"Task board '{path.name}' has no matching section in the configured agent registry; register it or remove the board.",
-                    path,
-                )
-        archive = tasks_dir / "archive"
-        if archive.is_dir():
-            for path in sorted(archive.glob("*.md")):
-                if path.name.lower() in TASK_BOARD_IGNORES:
-                    continue
-                stem_match = re.fullmatch(r"(\d{4}-\d{2}-\d{2})-(\S+)", path.stem)
-                if stem_match is None:
-                    self.add(
-                        "warning", "ARCHIVE_NAME",
-                        f"Archive file should be named <YYYY-MM-DD>-<agent-id>.md; found '{path.name}'.",
-                        path,
-                    )
-                    continue
-                try:
-                    datetime.strptime(stem_match.group(1), "%Y-%m-%d")
-                except ValueError:
-                    self.add(
-                        "warning", "ARCHIVE_NAME",
-                        f"Archive date '{stem_match.group(1)}' is not a valid calendar day in '{path.name}'.",
-                        path,
                     )
 
     def normalized_commands(self) -> dict[str, list[dict[str, Any]]]:

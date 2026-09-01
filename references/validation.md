@@ -21,10 +21,10 @@ The validator exits nonzero on errors. Use `--strict` to promote warnings for ma
 ### Structure
 
 - `.ai/harness.json` exists and the declared guidance entrypoint, architecture path, and knowledge index exist (a renamed entrypoint shifts what is checked, not a literal `AGENTS.md` name).
-- manifest structure is enforced by hand-written contract checks (`MANIFEST_CONTRACT` findings name the violated field): `schemaVersion` is the integer 1, `project` carries a valid adoption mode and persistence model plus an optional `harnessProfile` of `lite` or `full`, and `guidance`/`knowledge`/`commands`/`validation` have the required shapes. Full must declare plans, agents, tasks, and both matching checks; a lite manifest with that complete shape warns as `PROFILE_DRIFT`.
+- manifest structure is enforced by hand-written contract checks (`MANIFEST_CONTRACT` findings name the violated field): `schemaVersion` is the integer 1, `project` carries a valid adoption mode and persistence model plus an optional `harnessProfile` of `lite` or `full`, and `guidance`/`knowledge`/`commands`/`validation` have the required shapes. Full must declare plans and agents knowledge plus plan-state and agents checks; a lite manifest with that complete shape warns as `PROFILE_DRIFT`.
 - manifest paths are relative, remain inside the repository, and resolve when required.
 - core knowledge paths (`index`, `architecture`, and `product`) exist; optional branches are checked only when declared.
-- the full profile declares collaboration surfaces (`knowledge.agents` registry, `knowledge.tasks` directory); the lite profile omits them. Optional branches are validated whenever declared and their checks are enabled.
+- the full profile declares the agent registry (`knowledge.agents`); the lite profile omits it. Optional branches are validated whenever declared and their checks are enabled.
 
 ### Guidance budget
 
@@ -57,13 +57,11 @@ The validator exits nonzero on errors. Use `--strict` to promote warnings for ma
 
 Checked when `validation.requiredChecks` includes `agents` (the scaffolded default):
 
-- declared `knowledge.agents` registry and `knowledge.tasks` directory paths exist;
-- registry sections use unique single-token `## <agent-id>` ids, case-insensitively (`AGENT_ID_DUPLICATE` error) with `- Model`, `- Joined`, `- Status`, `- Last active` fields present (`AGENT_FIELD` error);
-- status vocabulary is `active` / `idle` / `retired` (`AGENT_STATUS` error); dates use YYYY-MM-DD, parse as calendar dates, and stay in the past (`AGENT_DATE` error);
-- `- Last active` older than the freshness window warns (`AGENT_STALE`) rather than silently becoming truth;
-- the registry enforces a single writer session: two or more entries with `Status: active` fail (`AGENT_MULTIPLE_ACTIVE` error). Subagents of the active conversation and read-only review agents are not independent workers — they are not registered and never counted;
-- task boards whose file stem matches no registered agent warn (`TASK_BOARD_UNREGISTERED`); archive files not named `<YYYY-MM-DD>-<agent-id>.md` — including impossible calendar dates like `2026-99-99` — warn (`ARCHIVE_NAME`);
-- ownership stays advisory: the check enforces structure only, never locking or territory.
+- the declared `knowledge.agents` registry path exists;
+- registration is one-time: registry sections use unique single-token `## <agent-id>` ids, case-insensitively (`AGENT_ID_DUPLICATE` error) with `- Model` and `- Joined` fields present (`AGENT_FIELD` error);
+- `- Joined` uses YYYY-MM-DD, parses as a calendar date, and stays in the past (`AGENT_DATE` error);
+- an unclosed code fence in the registry warns (`AGENT_FENCE_UNCLOSED`) — sections after it are ignored;
+- there is nothing else to maintain: no statuses, no freshness, no boards. Session state lives in plans and round entries (compacted at session end), not in the registry.
 
 ### Manifest commands
 
@@ -105,7 +103,7 @@ Exhaustive codes the universal validator can emit, grouped by check (severity):
 | Links | `BROKEN_LINK`, `LINK_ESCAPE`, `UNDEFINED_LINK_REFERENCE` (E) |
 | Metadata | `METADATA_MISSING`, `METADATA_STATUS`, `VERIFICATION_DATE`, `FUTURE_VERIFICATION` (E); `PLACEHOLDER_CONTENT` (W) |
 | Plan state | `PLAN_FIELD`, `PLAN_STATUS`, `PLAN_ID_DUPLICATE` (E); `ACTIVE_PLANS_DIR` (W) |
-| Agent coordination | `AGENT_ID_DUPLICATE`, `AGENT_FIELD`, `AGENT_STATUS`, `AGENT_DATE`, `AGENT_MULTIPLE_ACTIVE` (E); `AGENT_STALE`, `AGENT_FENCE_UNCLOSED`, `TASK_BOARD_UNREGISTERED`, `ARCHIVE_NAME` (W) |
+| Agent coordination | `AGENT_ID_DUPLICATE`, `AGENT_FIELD`, `AGENT_DATE` (E); `AGENT_FENCE_UNCLOSED` (W). One-time registration: no statuses, no freshness, no task boards |
 | Commands | `COMMAND_BLOCK/GROUP/SHAPE/ARGV/ARGV_LENGTH/ABSOLUTE_PATH/SECRET_ARGUMENT/CWD/CWD_TYPE/TIMEOUT/REQUIRED` (E); `COMMAND_GROUP_NEVER_RUNS`, `UNSAFE_COMMAND_GROUP` (W) |
 | Architecture | `ARCH_BLOCK`, `ARCH_NOT_ENFORCED` (E); `ARCH_OBSERVATIONAL` (W). Zone-graph validation is deliberately left to project-native linters |
 | Command execution (`--run-commands`) | records exit code and duration only — command output is discarded, not captured; failures surface as `COMMAND_FAILED`, `COMMAND_MISSING`, `COMMAND_TIMEOUT`, or `COMMAND_EXECUTION` with severity following each command's `required` flag |

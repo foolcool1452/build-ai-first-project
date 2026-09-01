@@ -38,7 +38,7 @@ Prefer the import on Windows because symlink creation may require additional pri
 
 Kimi Code reads project `AGENTS.md` and supports `.agents/skills/` directly. Its project skill root is the nearest ancestor containing `.git`; nested component `.agents/skills/` directories are rejected as a portable surface unless the component is its own Git root. Keep cross-tool component workflows at the nearest Git root with scoped names and descriptions. Keep Kimi-only instructions in `.kimi-code/AGENTS.md` and Kimi-only skills in root `.kimi-code/skills/` only when the portable form is insufficient.
 
-Kimi subagents have isolated contexts. Task descriptions must include the goal, scope, evidence locations, constraints, and expected result; do not assume the parent conversation is visible. When the project keeps an agent registry, also pass the delegate's registry agent id so it can record presence and update its own task board without reading the parent transcript.
+Kimi subagents have isolated contexts. Task descriptions must include the goal, scope, evidence locations, constraints, and expected result; do not assume the parent conversation is visible. When the project keeps an agent registry, also pass the delegate's registry agent id so the one-time registration can be made without reading the parent transcript.
 
 ## Repo-local skills
 
@@ -79,6 +79,6 @@ Do not turn stable facts such as module paths into a skill; keep them in canonic
 - Detect capability differences and degrade to normal file reading rather than copying knowledge.
 - Treat instruction files as behavioral guidance, not a security boundary.
 
-Coordination surfaces (`docs/agents/`, `docs/tasks/`) are ordinary versioned Markdown, so every tool reads them with plain file access — no mirrors or adapters are needed. Each supported agent updates only its own registry entry and board; the advisory ownership convention is enforced socially plus structurally by validation, never by locking files.
+The agent registry (`docs/agents/`) is ordinary versioned Markdown, so every tool reads it with plain file access — no mirrors or adapters are needed. Registration is one-time per agent; coordination beyond that is enforced socially plus structurally by validation, never by locking files.
 
 Official discovery references: [Codex skills](https://developers.openai.com/codex/skills), [Claude Code skills](https://code.claude.com/docs/en/slash-commands), and [Kimi Code skills](https://www.kimi.com/code/docs/en/kimi-code-cli/customization/skills.html).

@@ -90,7 +90,7 @@ Use flow-forward for strong audit history, living specs for stable product contr
 A work round is the standard loop for non-trivial changes: **Open** (state the goal and how it will be proven) → **Execute** → **Verify** → **Review** (one zero-context review subagent) → **Close** (reconcile docs). Repeat execute/review until the review comes back clean. Single-file cosmetic edits skip rounds and go straight through the Change workflow.
 
 ```text
-session start — registry active
+session start
       │
 round? ──no──► Change workflow (small edits, no round entry)
       │yes
@@ -110,7 +110,7 @@ Close ──── reconcile docs; mark the entry closed
       │
 more work? ──yes──► next round (back to Open)
       │no
-session end ── registry idle; archive the plan or suspend it
+session end ── compact state into the plan; archive or suspend it
 ```
 
 **Rules**
@@ -119,12 +119,12 @@ session end ── registry idle; archive the plan or suspend it
 - **One review subagent per round** by default; anything more needs a written justification in the entry.
 - **The reviewer sees only** the goal, the combined diff, the evidence, and the verification — never the working conversation — and re-runs the proof itself. Zero findings is unusual: re-check whether the verification is strong enough before celebrating.
 - **Every finding is accepted or rejected with a one-line reason.** Accepted means fixed and re-verified, or turned into an explicit ticket.
-- **A session that must end mid-round suspends it**: registry `idle`, entry marked `suspended <date> — <state>`, and the plan's Next action carries the single next safe step. The next writer session resumes the same round; a suspension older than about a week is stale and goes back to Plan.
+- **A session that must end mid-round suspends it**: entry marked `suspended <date> — <state>`, and the plan's Next action carries the single next safe step. The next writer session resumes the same round; a suspension older than about a week is stale and goes back to Plan.
 - **Closing the last round does not archive a plan**: reconcile docs, set `Status: completed`, move the plan to `docs/plans/completed/`, and re-validate.
 
 **When not to spawn**: the task is answerable with a few direct reads; the change is single-file; a subagent would only re-read what the session already knows; or nothing about the outcome is independently verifiable. Marginal gains from extra agents are often smaller than their coordination and token cost.
 
-**Division of labor across surfaces**: plans answer "what is being changed and why"; the registry answers "who is here, in what state, and which session is the writer"; boards answer "what small items are queued"; rounds answer "how this piece of work was verified and reviewed".
+**Division of labor across surfaces**: plans answer "what is being changed and why"; the registry answers "who has worked here"; rounds answer "how this piece of work was verified and reviewed".
 
 ## Recovery and handoff
 
@@ -138,30 +138,17 @@ On pause or context loss, update the active plan with:
 - next safe action;
 - blockers requiring judgment.
 
-Do not create a separate `HANDOFF.md` when the active plan already owns this state. Do not commit raw session logs or credentials.
+Do not create a separate `HANDOFF.md` when the active plan already owns this state. Do not commit raw session logs or credentials. Treat every session end as a **compaction point** — the pattern behind 24h+ agent sessions: compress everything that matters into the plan's Next action and the round entries, so a fresh session rebuilds from artifacts instead of history.
 
 ## Multi-agent collaboration
 
-The full profile provides a registry and task boards so identity, presence, and division of labor remain visible without hidden knowledge. Lite projects add and declare these branches only when collaboration becomes real.
+Coordination in this harness is deliberately minimal. The full profile provides a one-time registry: the first session that works in the repository appends its `## <agent-id>` section to `docs/agents/REGISTRY.md` — nothing else is maintained. There are no statuses to flip and no boards to groom; when a session ends, its state is compacted into the active plan (the Next action and round entries), and the next session rebuilds from those artifacts.
 
-**Session lifecycle**
+- One writer session at a time remains the working norm; if two sessions ever overlap, coordinate directly — the registry records participation, not locks.
+- Subagents of a session and read-only reviewers work under that session's identity; they are not registered.
+- The registry answers "who has worked here"; plans answer "what is being changed and why"; rounds answer "how a piece of work was verified and reviewed".
 
-1. On the first session in a project, register in `docs/agents/REGISTRY.md` (one `## <agent-id>` section) and create `docs/tasks/<agent-id>.md`.
-2. At session start, set your `Status: active` and refresh `Last active`. This project allows a single writer session: while your entry is `active`, no other session may claim the role.
-3. While working, keep lightweight todos on your board; reference cross-session plans rather than duplicating them. Subagents spawned by your session and read-only review agents work under your identity — they are not registered and never set `active`.
-4. At session end or context handoff, set `Status: idle`, update `Last active`, and leave the board consistent with the active plan's state. The next session then claims `active`.
-5. When a phase ends, groom boards: archive finished items to `docs/tasks/archive/<YYYY-MM-DD>-<agent-id>.md` (default) or delete them if the team prefers no history.
-
-**Ownership rules (advisory)**
-
-- The single-writer invariant is enforced by validation (`AGENT_MULTIPLE_ACTIVE`); everything else about ownership stays a display convention.
-- Task-board ownership is a display convention. With one writer session at a time, takeovers happen between sessions; note the handover so history stays legible.
-- Never edit another agent's registry section except to retire it after explicit handover; update only your own entry.
-- Retired agents keep their sections and archives as history; their boards may be deleted at grooming time.
-
-**Division of responsibility**: plans answer "what is being changed and why", the registry answers "who is here and in what state", boards answer "what small items are queued". If a board item grows plan-worthy, promote it instead of fattening the board.
-
-When omitting both branches from a project, remove the declarations from `.ai/harness.json`, delete `docs/agents/` and `docs/tasks/`, and drop the routing rows that referenced them.
+When omitting the branch from a project, remove the `knowledge.agents` declaration from `.ai/harness.json` and delete `docs/agents/`.
 
 ## Continuous gardening
 

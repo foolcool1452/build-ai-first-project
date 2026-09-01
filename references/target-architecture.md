@@ -49,7 +49,7 @@ repo/
         `-- validate_harness.py      # validation entrypoint; imports the paired sync helper
 ```
 
-The full profile adds `docs/plans/{TEMPLATE.md,active/README.md}`, `docs/agents/REGISTRY.md`, and `docs/tasks/README.md`. Everything else (decision records, operations, quality, generated knowledge, extra workflows) is created only when a real need appears and is then declared in `.ai/harness.json`.
+The full profile adds `docs/plans/{TEMPLATE.md,active/README.md}`, and `docs/agents/REGISTRY.md`. Everything else (decision records, operations, quality, generated knowledge, extra workflows) is created only when a real need appears and is then declared in `.ai/harness.json`.
 
 ## Profile selection
 
@@ -105,18 +105,11 @@ Use plans only for changes that cross sessions, components, or review checkpoint
 
 Update the plan during work. When complete, preserve durable rationale in an ADR or canonical doc; then archive or delete the plan according to the chosen persistence model.
 
-### Agent registry and task boards
+### Agent registry
 
-`docs/agents/REGISTRY.md` records who has worked in the repository: one `## <agent-id>` section per agent with single-token ids and fields `- Model`, `- Joined: YYYY-MM-DD`, `- Status` (`active`, `idle`, or `retired`), `- Last active: YYYY-MM-DD`, `- Focus`, `- Task board`, `- Notes`. Set `Status: active` at session start and back to `idle` when finishing; `Last active` older than the freshness window warns via validation.
+`docs/agents/REGISTRY.md` records who has worked in the repository: one `## <agent-id>` section per agent with single-token ids and fields `- Model`, `- Joined: YYYY-MM-DD`, plus optional `- Focus` and `- Notes`. Registration is **one-time** — there are no statuses to maintain; session state is compacted into the active plan instead (see Work rounds).
 
-Coordination is advisory by design — nothing locks a file or reserves work:
-
-- one lightweight board per registered agent at `docs/tasks/<agent-id>.md`, split into `In progress` and `Done this phase`;
-- any registered agent may pick up another's item; note the handover on their own board;
-- multi-session work belongs in `docs/plans/active/`; boards reference it rather than duplicating it;
-- when a phase ends, groom boards: move finished items to `archive/<YYYY-MM-DD>-<agent-id>.md` (default) or delete them if the team prefers no history, and reset each board's done section.
-
-The validator enforces structure (unique ids, status vocabulary, date formats), not territory. A project may omit both branches by removing the declarations from `.ai/harness.json`, deleting the directories, and dropping the routing rows that pointed at them.
+The validator enforces structure (unique ids, field presence, date validity), not territory. A project may omit the branch by removing the `knowledge.agents` declaration from `.ai/harness.json` and deleting the directory.
 
 ### Generated documentation
 

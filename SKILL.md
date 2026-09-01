@@ -51,7 +51,7 @@ Place each fact in exactly one primary surface:
 - Current architecture map -> `ARCHITECTURE.md` and `docs/architecture/`.
 - Durable rationale -> architecture decision record.
 - Multi-step change state -> `docs/plans/active/`.
-- Agent identity and presence -> `docs/agents/REGISTRY.md`; lightweight per-agent todos -> `docs/tasks/` (ownership is advisory; see `references/workflows.md`).
+- Agent identity -> `docs/agents/REGISTRY.md` (one-time registration; see `references/workflows.md`).
 - Repeatable procedure -> repo-local skill or `docs/workflows/`.
 - Mechanically decidable rule -> executable check.
 - Derived fact -> generated documentation; do not hand-edit it.

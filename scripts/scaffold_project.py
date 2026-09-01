@@ -84,8 +84,7 @@ def main() -> int:
             "a change proposal (create and declare a plans branch first)"
         ),
         "OPTIONAL_KNOWLEDGE": (
-            ',\n    "plans": "docs/plans",\n    "agents": "docs/agents/REGISTRY.md",'
-            '\n    "tasks": "docs/tasks"'
+            ',\n    "plans": "docs/plans",\n    "agents": "docs/agents/REGISTRY.md"'
             if profile == "full" else ""
         ),
         "PROFILE_REQUIRED_CHECKS": (
@@ -93,23 +92,21 @@ def main() -> int:
         ),
         "PROFILE_PROJECT_MAP": (
             "- Resumable plans: `docs/plans/active/` (start from `docs/plans/TEMPLATE.md`)\n"
-            "- Agent roster: `docs/agents/REGISTRY.md`\n"
-            "- Agent task boards: `docs/tasks/` (ownership is advisory)"
+            "- Agent roster: `docs/agents/REGISTRY.md` (one-time registration)"
             if profile == "full" else
-            "- Plans and agent coordination are intentionally omitted in the lite profile; add and declare them when work needs cross-session recovery or multiple agents."
+            "- Plans and agent registration are intentionally omitted in the lite profile; add and declare them when work needs cross-session recovery or a shared roster."
         ),
         "PROFILE_ROUTING_ROWS": (
-            "| Who works here and their status | [Agent registry](agents/REGISTRY.md) |\n"
-            "| Lightweight per-agent todos | [Task boards](tasks/) |\n"
+            "| Agents that worked here | [Agent registry](agents/REGISTRY.md) (one-time registration) |\n"
             "| Resumable multi-step work | [Plan template](plans/TEMPLATE.md) and [active plans](plans/active/) |"
             if profile == "full" else
-            "| Plans and agent coordination | Intentionally omitted by the lite profile; add and declare them when needed. |"
+            "| Plans and agent registration | Intentionally omitted by the lite profile; add and declare them when needed. |"
         ),
         "PROFILE_WORKFLOW": (
             "- For work that crosses sessions or components, create or update a plan from `docs/plans/TEMPLATE.md` in `docs/plans/active/`.\n"
-            "- At session start, update your entry in `docs/agents/REGISTRY.md`; create your board under `docs/tasks/` when needed."
+            "- The first time you work here, register once in `docs/agents/REGISTRY.md` — no maintenance afterwards; when a session ends, compact its state into the plan's Next action."
             if profile == "full" else
-            "- If work grows beyond one agent or session, add the plans and coordination branches and declare them in `.ai/harness.json` before relying on them."
+            "- If work grows beyond one agent or session, add the plans and registry branches and declare them in `.ai/harness.json` before relying on them."
         ),
         "PROFILE_DONE": (
             "- The active plan records final verification and leaves `docs/plans/active/` when complete."

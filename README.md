@@ -8,8 +8,8 @@ A v2.x harness upgrades in place; the v3 validator stays backward-compatible:
 
 1. Replace `tools/ai/validate_harness.py` and `tools/ai/sync_skill_adapters.py` with the v3 copies (keep the pair together — the validator imports helpers from the sync script).
 2. Delete `.ai/harness.schema.json`; remove the `$schema` and `validation.freshnessDays` keys from `.ai/harness.json` (leaving them does not break validation, but they are no longer part of the contract).
-3. Choose a profile. Without `project.harnessProfile` the manifest validates as before; set `"harnessProfile": "full"` (plus the `plan-state`/`agents` checks and the three knowledge paths, if not already declared) or `"lite"` and remove the undeclared branches. The v3 scaffold re-run over the project also reconciles missing files — it never overwrites existing ones.
-4. Note the new `AGENT_MULTIPLE_ACTIVE` check: if your registry has more than one `Status: active` entry, validation now fails by design (one writer session at a time).
+3. Choose a profile. Without `project.harnessProfile` the manifest validates as before; set `"harnessProfile": "full"` (plus the `plan-state`/`agents` checks and the two knowledge paths, if not already declared) or `"lite"` and remove the undeclared branches. The v3 scaffold re-run over the project also reconciles missing files — it never overwrites existing ones.
+4. Note the relaxed registry: registration is one-time (agent id, model, joined date) — statuses and last-active maintenance are gone, so old registries with `Status:` or `Last active:` lines simply keep those lines as history (or trim them).
 5. Run `python tools/ai/validate_harness.py .` and resolve any findings.
 
 AI-first project architecture skill for Codex, Claude Code, Kimi Code, and other coding agents: audit, initialize, or retrofit software repositories so any coding agent can understand, modify, verify, and hand off the project reliably.
@@ -23,7 +23,7 @@ The skill turns a repository into an **agent harness** instead of a large instru
 - `.ai/harness.json` as the machine-readable control plane for canonical paths and deterministic commands;
 - explainable `auto`, `lite`, and `full` scaffold profiles, with explicit AI/user override;
 - repo-local skills canonically at `.agents/skills/` with generated Claude mirrors under `.claude/skills/`;
-- multi-agent collaboration surfaces: `docs/agents/REGISTRY.md` roster plus per-agent task boards under `docs/tasks/`;
+- a one-time agent registry: `docs/agents/REGISTRY.md`;
 - executable checks (`scripts/validate_project.py`) that keep the harness honest.
 
 ## Contents
@@ -94,19 +94,17 @@ Scaffolding is **preview by default**: it never overwrites existing files and re
 ## Profiles
 
 - `lite` creates the verified core: routing, product intent, observed architecture, manifest, adapters, report ignores, and validation tools.
-- `full` adds resumable plans, an agent registry, and task boards. It is the v2-style landing set with corrected routes.
+- `full` adds resumable plans and the one-time agent registry. It is the v2-style landing set with corrected routes.
 - `auto` scores current repository evidence and prints every signal. An AI or user should explicitly override it when product intent, risk, future scope, or team shape is more informative than the file census.
 
 Both profiles keep the same untrusted-input, path-containment, command, adapter, and knowledge-integrity protections.
 
 ## Full-profile collaboration
 
-Projects scaffolded with the full profile include two lightweight coordination surfaces:
+Projects scaffolded with the full profile include a deliberately minimal coordination surface:
 
-- `docs/agents/REGISTRY.md` — who has joined the project, each agent's status (`active` / `idle` / `retired`), focus areas, and a link to their task board.
-- `docs/tasks/<agent-id>.md` — per-agent todo boards with `In progress` and `Done this phase` sections. Ownership is **advisory only**: any registered agent may pick up another's task.
-
-At the end of a phase, completed items are archived to `docs/tasks/archive/<date>-<agent-id>.md` (or deleted if the team prefers). The validator enforces structure and unique agent IDs while keeping coordination advisory rather than locking.
+- `docs/agents/REGISTRY.md` — a one-time roster: who has worked in the project (agent id, model, joined date, optional focus/notes). Registration happens once when a session first works here; there are no statuses to maintain.
+- Ongoing state is not tracked in the registry — when a session ends, its state is compacted into the active plan (the Next action and round entries), and the next session rebuilds from those artifacts. The validator enforces structure and unique agent IDs while keeping coordination advisory rather than locking.
 
 ## Design principles
 

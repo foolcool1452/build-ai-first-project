@@ -94,11 +94,11 @@ def main() -> int:
         run(SCAFFOLD, str(lite), "--mode", "greenfield", "--apply")
         lite_manifest = json.loads((lite / ".ai/harness.json").read_text(encoding="utf-8"))
         assert lite_manifest["project"]["harnessProfile"] == "lite"
-        assert not {"plans", "agents", "tasks"} & set(lite_manifest["knowledge"])
+        assert not {"plans", "agents"} & set(lite_manifest["knowledge"])
         assert "plan-state" not in lite_manifest["validation"]["requiredChecks"]
         assert "agents" not in lite_manifest["validation"]["requiredChecks"]
         for omitted in (
-            "docs/agents/REGISTRY.md", "docs/tasks/README.md",
+            "docs/agents/REGISTRY.md",
             "docs/plans/TEMPLATE.md", "docs/plans/active/README.md",
         ):
             assert not (lite / omitted).exists(), omitted
@@ -107,7 +107,7 @@ def main() -> int:
         for ghost_route in (
             "docs/architecture/index.md", "docs/architecture/decisions/",
             ".agents/skills/README.md", "docs/agents/REGISTRY.md",
-            "docs/tasks/", "docs/plans/TEMPLATE.md",
+            "docs/plans/TEMPLATE.md",
         ):
             assert ghost_route not in lite_guidance
         for ghost_doc in ("ARCHITECTURE.md", "docs/INDEX.md"):
@@ -137,12 +137,13 @@ def main() -> int:
         assert '\n    "setup": []' in (green / ".ai/harness.json").read_text(encoding="utf-8")
         full_manifest = json.loads((green / ".ai/harness.json").read_text(encoding="utf-8"))
         assert full_manifest["project"]["harnessProfile"] == "full"
-        assert {"plans", "agents", "tasks"} <= set(full_manifest["knowledge"])
+        assert {"plans", "agents"} <= set(full_manifest["knowledge"])
+        assert "tasks" not in full_manifest["knowledge"]
         assert {"plan-state", "agents"} <= set(full_manifest["validation"]["requiredChecks"])
         for tracked in (
             "AGENTS.md", "CLAUDE.md", "ARCHITECTURE.md",
             "docs/INDEX.md", "docs/product/index.md",
-            "docs/agents/REGISTRY.md", "docs/tasks/README.md",
+            "docs/agents/REGISTRY.md",
             "docs/plans/TEMPLATE.md", "docs/plans/active/README.md",
             ".ai/harness.json",
             ".ai/.gitignore",
@@ -567,87 +568,47 @@ def main() -> int:
 
         registry = brown / "docs/agents/REGISTRY.md"
         assert registry.is_file()
-        tasks_dir = brown / "docs/tasks"
         today = date.today().isoformat()
-        stale_day = (date.today() - timedelta(days=200)).isoformat()
-        last_active_value = today
 
         def write_registry(text: str) -> None:
             registry.write_text(text + "\n", encoding="utf-8", newline="\n")
 
-        def valid_agent_text(status_value: str, last_active_value_arg: str) -> str:
+        def valid_agent_text(model_line: str = "- Model: example-model") -> str:
             return (
                 "# Agent Registry\n\n"
                 "## atlas\n\n"
-                f"- Model: example-model\n- Joined: {today}\n- Status: {status_value}\n"
-                f"- Last active: {last_active_value_arg}\n\n"
+                f"{model_line}\n- Joined: {today}\n\n"
             )
 
-        write_registry(valid_agent_text("active", today))
-        (tasks_dir / "atlas.md").write_text(
-            "# Tasks: atlas\n\nLast updated: " + today + "\n\n## In progress\n\n- [ ] demo item\n",
-            encoding="utf-8", newline="\n",
-        )
+        write_registry(valid_agent_text())
         run(VALIDATE, str(brown))
 
-        write_registry(valid_agent_text("active", today) + valid_agent_text("active", today).replace("## atlas", "## Atlas"))
+        write_registry(valid_agent_text() + valid_agent_text().replace("## atlas", "## Atlas"))
         duplicate_report = run(VALIDATE, str(brown), expected=1)
         assert "AGENT_ID_DUPLICATE" in duplicate_report.stdout
-        write_registry(valid_agent_text("haunted", today))
-        status_report = run(VALIDATE, str(brown), expected=1)
-        assert "AGENT_STATUS" in status_report.stdout
-        bad_joined = valid_agent_text("active", today).replace(f"- Joined: {today}", "- Joined: 2026/08/01")
+        bad_joined = valid_agent_text().replace(f"- Joined: {today}", "- Joined: 2026/08/01")
         write_registry(bad_joined)
         date_report = run(VALIDATE, str(brown), expected=1)
         assert "AGENT_DATE" in date_report.stdout
-        future_last = valid_agent_text("active", "tomorrow")
-        write_registry(future_last)
-        future_report = run(VALIDATE, str(brown), expected=1)
-        assert "AGENT_DATE" in future_report.stdout
-        write_registry(valid_agent_text("active", stale_day))
-        stale_report = run(VALIDATE, str(brown))
-        assert "AGENT_STALE" in stale_report.stdout
-        write_registry(valid_agent_text("active", stale_day).replace("- Model: example-model\n", ""))
+        write_registry(valid_agent_text().replace("- Model: example-model\n", ""))
         missing_field = run(VALIDATE, str(brown), expected=1)
         assert "AGENT_FIELD" in missing_field.stdout
-        write_registry(valid_agent_text("active", stale_day))
-        (tasks_dir / "ghost.md").write_text("# Tasks: ghost\n", encoding="utf-8", newline="\n")
-        ghost_report = run(VALIDATE, str(brown))
-        assert "TASK_BOARD_UNREGISTERED" in ghost_report.stdout
-        (tasks_dir / "ghost.md").unlink()
-        archive_dir = tasks_dir / "archive"
-        archive_dir.mkdir(parents=True, exist_ok=True)
-        archive_note = archive_dir / "atlas-notes.md"
-        archive_note.write_text("historical items\n", encoding="utf-8", newline="\n")
-        archive_report = run(VALIDATE, str(brown))
-        assert "ARCHIVE_NAME" in archive_report.stdout
-        archive_note.unlink()
-
-        # Single-writer invariant: one active passes, two fail.
-        write_registry(valid_agent_text("active", today) + valid_agent_text("idle", stale_day).replace("## atlas", "## nova"))
-        mixed_report = run(VALIDATE, str(brown))
-        assert "AGENT_MULTIPLE_ACTIVE" not in mixed_report.stdout
-        write_registry(valid_agent_text("active", today) + valid_agent_text("active", today).replace("## atlas", "## nova"))
-        multi_report = run(VALIDATE, str(brown), expected=1)
-        assert "AGENT_MULTIPLE_ACTIVE" in multi_report.stdout
-        write_registry(valid_agent_text("active", today))
+        write_registry(valid_agent_text())
 
         # Tilde fences are skipped exactly like backtick fences; an unclosed
         # fence warns instead of silently swallowing later sections.
-        write_registry(valid_agent_text("active", today)
-                       + "\n~~~md\n## ghost\n\n- Model: m\n- Joined: " + today
-                       + "\n- Status: active\n- Last active: " + today + "\n\n~~~\n")
+        write_registry(valid_agent_text()
+                       + "\n~~~md\n## ghost\n\n- Model: m\n- Joined: " + today + "\n~~~\n")
         tilde_report = run(VALIDATE, str(brown))
-        assert "AGENT_MULTIPLE_ACTIVE" not in tilde_report.stdout
-        write_registry(valid_agent_text("active", today) + "\n```md\n## ghost\n- Status: active\n")
+        assert "AGENT_FIELD" not in tilde_report.stdout
+        write_registry(valid_agent_text() + "\n```md\n## ghost\n- Model: m\n")
         unclosed_report = run(VALIDATE, str(brown))
         assert "AGENT_FENCE_UNCLOSED" in unclosed_report.stdout
-        write_registry(valid_agent_text("active", today))
+        write_registry(valid_agent_text())
 
         baseline_manifest_obj = json.loads(manifest_path.read_text(encoding="utf-8"))
         omitting = json.loads(json.dumps(baseline_manifest_obj))
-        for key in ("agents", "tasks"):
-            omitting["knowledge"].pop(key)
+        omitting["knowledge"].pop("agents")
         write_json(manifest_path, omitting)
         index_path = brown / "docs/INDEX.md"
         index_lines = index_path.read_text(encoding="utf-8").splitlines()
@@ -658,15 +619,13 @@ def main() -> int:
             ) + "\n",
             encoding="utf-8", newline="\n",
         )
-        shutil.rmtree(tasks_dir)
         shutil.rmtree(registry.parent)
         run(VALIDATE, str(brown))
 
         # Restore a valid coordination surface so later scenarios keep passing.
         write_json(manifest_path, json.loads((green / ".ai/harness.json").read_text(encoding="utf-8")))
         registry.parent.mkdir(parents=True, exist_ok=True)
-        write_registry(valid_agent_text("idle", today))
-        tasks_dir.mkdir(parents=True, exist_ok=True)
+        write_registry(valid_agent_text())
 
 
 
