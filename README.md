@@ -1,6 +1,6 @@
 # build-ai-first-project
 
-Version: **3.2.0** — current mainline release.
+Version: **3.3.0** — current mainline release.
 
 ## Upgrading a project from v2.x
 

@@ -1,6 +1,6 @@
 # Work Rounds v2: session-bounded, verification-first design
 
-Status: accepted (2026-08-31; session-boundary semantics amended per user decision — rounds loop inside one session by default, suspended/resume only when the session must end)
+Status: accepted — superseded by WORK_ROUNDS_V3_DESIGN.md (red-baseline discipline; session semantics carried over)
 Last verified: 2026-08-31
 Sources: 2026-08 长程 Agent 与 Agent 集群调研报告（METR/Cognition/Anthropic/Manus 工程实证）；AgentMesh 项目汇报（任务卡精确度-成本数据）；v3.1.0 两轮独立审查结论
 

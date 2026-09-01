@@ -87,30 +87,32 @@ Use flow-forward for strong audit history, living specs for stable product contr
 
 ## Work rounds
 
-A work round is the standard unit for non-trivial changes: **Open** the round by committing its verification up front → **Execute** → **Verify** → **Review** (review subagent) → repeat Execute/Verify/Review until convergence → **Close** (reconcile docs, disposition every finding, record the outcome). Rounds turn long work into verification-bounded, resumable increments. Log one entry per round in the active plan's `Rounds` section (see `docs/plans/TEMPLATE.md`).
+A work round is the standard unit for non-trivial changes: **Open** (commit the round's goal, its verification command, and the red baseline) → **Execute** → **Verify** → **Review** (review subagent re-runs verification) → repeat until convergence → **Close** (reconcile docs). Rounds are required when a change alters behavior, touches the manifest or canonical docs, spans multiple files, or crosses a boundary; single-file cosmetic changes go straight through the Change workflow with a one-line note in an existing plan.
 
 **Round lifecycle**
 
-1. **Open**: mark the registry `active`, then append the round entry with its goal and the **Verify command** — the command that will prove the round is done, committed before any change is made. Declare the subagent budget and, if writing subagents will run in parallel, their file/region partition.
+1. **Open**: mark the registry `active`; append the round entry: goal, the **Verify command** (anchored on the harness's registered checks plus round-specific assertions), the subagent budget, and the writer partition if writing subagents will run in parallel. Then run Verify once and record the **baseline** — a round is valid only if the baseline fails, or fails to exercise the round's change. A baseline that already passes makes the commitment vacuous: narrow the command or extend it with the missing check before executing anything. Record evidence as one line: `baseline: exit <code> — <summary>`.
 2. **Execute**: make the change in-session or through writing subagents inside the partition. Failed approaches stay in the entry — kept failures are evidence, not embarrassment.
-3. **Verify**: run the Verify command; record the outcome as evidence.
-4. **Review**: a review subagent with zero shared context receives the goal, the combined diff (including subagent-written changes), and the evidence, and **re-runs the Verify command itself** — it does not trust the session's claim. Findings are accepted or rejected with one-line reasons.
-5. Repeat Execute/Verify/Review until a review returns no new findings. Two consecutive reviews with only rejected-with-reason findings means the loop is oscillating: stop and re-plan.
-6. **Close**: reconcile specs, architecture, and the routing index (or declare "no reconciliation needed"), then mark the entry closed.
+3. **Verify**: run the Verify command unpiped (pipes can mask exit codes) and append `verified: exit <code> — <summary> — <command>`. The expected trajectory is baseline-red → verified-green.
+4. **Review**: a review subagent with zero shared context receives the goal, the combined diff (including subagent-written changes), the evidence, and the Verify command, and **re-runs the verification itself**. Its output must include a coverage declaration (what it re-ran and read) and append its own line: `reviewer: exit <code> — <summary>`. Findings are accepted or rejected with one-line reasons; an accepted finding lands as a fix plus a re-Verify, or becomes an explicit ticket. A review with zero findings is an anomaly signal, not a pass — re-check the Verify's strength first.
+5. Repeat Execute/Verify/Review until a review returns no new findings. Two consecutive reviews returning only rejected-with-reason findings means the loop is oscillating: stop and re-plan.
+6. **Close**: reconcile specs, architecture, and the routing index (or declare "no reconciliation needed") and mark the entry closed.
 
 **Subagent rules**
 
 1. **Shared identity, owned output**: subagents may research, review, and write. Everything a subagent changes carries the session's identity — the session owns the result, and subagent-written changes receive the same review as the session's own.
-2. **Partition parallel writers**: if several writing subagents run concurrently, give each a strict file or region partition — or serialize them. Unpartitioned parallel writers are how conflicts and turf wars start. Record the partition in the round entry's Execute line so the ownership trail stays on the plan.
-3. **Budget on the table**: one research and one review subagent per round by default. More than that requires a written justification in the round entry — extra subagents are bought token-per-performance and must pay for themselves.
-4. **Zero-shared-context review**: the review subagent receives the goal, the combined diff (including subagent-written changes), and the evidence — never the working conversation. Reviewers without shared context catch more and praise less.
-5. **Disposition discipline**: every review finding is accepted or rejected with a one-line reason in the round entry. Silent drops are how defects ship.
+2. **Partition parallel writers**: record the partition in the entry as `partition: <writer-id> = <path or glob>[; ...]`. Partitions must not overlap and must cover every file the round may touch; the review checks the changed-file list against the partition.
+3. **Budget on the table**: one review subagent per round by default; research subagents are on demand, justified in the entry — research need concentrates in the first round, and precision spent writing the round entry is the cheapest token you will spend. Anything beyond the default requires written justification: extra subagents are bought token-per-performance and must pay for themselves.
+4. **Zero-shared-context review**: the review subagent receives the goal, the combined diff (including subagent-written changes), the evidence, and the Verify command — never the working conversation. Reviewers without shared context catch more and praise less.
+5. **Disposition discipline**: every review finding is accepted or rejected with a one-line reason in the round entry; an accepted finding must land as a fix plus a re-Verify, or become an explicit ticket. Silent drops and "accepted but not done" are how defects ship.
 
 **When not to spawn**: the task is answerable with a few direct reads; the change is single-file; a subagent would only re-read what the session already knows; or nothing about the outcome is independently verifiable. Marginal gains from extra agents are often smaller than their coordination and token cost.
 
-**Session boundary**: rounds loop inside one session by default. If the session must end first, the round is **suspended**, not closed — the entry records the state it reached, the plan's Next action carries the handoff, and the next writer session re-opens the same round id. A round whose loop cannot converge is sent back to Plan — never to Archive.
+**Session boundary**: rounds loop inside one session by default. After two or three closed rounds, prefer a clean break at a round boundary — set the registry to `idle`, let the plan's Next action carry the handoff, and let the next session re-open from the plan: a fresh context with structured handoff outperforms a degrading one. If a session must end mid-round, the round is **suspended**, not closed: set the registry to `idle`, write `Close: suspended <date> — <state reached>`, put the single next safe action in the plan's Next action, and stop. The next session sets `active` and appends `Resumed <date>:` sub-lines to the same entry without rewriting the suspension record. A suspension older than roughly a week — or one whose red baseline has drifted for unrelated reasons — is void: re-open as a new round from Plan.
 
-**Division of labor across surfaces**: plans answer "what is being changed and why"; the registry answers "who is here, in what state, and which session is the writer"; boards answer "what small items are queued"; rounds answer "how this piece of work was actually done and reviewed".
+**Archive**: closing the last round does not archive a plan. To archive: reconcile docs, set `Status: completed`, move the file from `docs/plans/active/` to `docs/plans/completed/` in the same edit, and re-run validation — a completed plan left in `active/` fails validation by design. Suspended round entries that get archived are historical records.
+
+**Division of labor across surfaces**: plans answer "what is being changed and why"; the registry answers "who is here, in what state, and which session is the writer"; boards answer "what small items are queued"; rounds answer "how this piece of work was verified and reviewed".
 
 ## Recovery and handoff
 

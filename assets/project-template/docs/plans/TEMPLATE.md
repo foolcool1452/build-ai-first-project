@@ -35,23 +35,24 @@ State one safe, concrete next action.
 
 ## Rounds
 
-Optional work-round log. One entry per research → execute → verify → review
-cycle; repeat until convergence, then reconcile docs and close. Subagents may
-research, review, and write under this session's identity — partition parallel
-writers by file or region, keep to the default budget of one research + one
-review subagent, and give reviewers only the goal, the combined diff, the
-evidence, and the Verify command. Every review finding is accepted or rejected
-with a reason.
+Required for non-trivial changes (behavior, manifest, canonical docs,
+multi-file, or boundary-crossing; single-file cosmetic edits may go straight
+through the Change workflow). One entry per round: Open commits the Verify
+command and its red baseline; Execute/Verify/Review repeat until convergence;
+Close reconciles docs. Reference files with backticked repository-relative
+paths — markdown links in entries must resolve from this directory. Full
+conventions: the harness skill's "Work rounds" section.
 
 ### Round 1 — {{DATE}} — <goal>
 
-- Verify: <command that proves this round is done; committed before changes>.
-- Research: findings or decision; subagents used: N (over-budget justification
-  goes here).
-- Execute: what changed; evidence; writer partition if subagents wrote in
-  parallel.
-- Review: findings; each accepted or rejected with a reason; reviewer re-ran
-  Verify.
-- Close: docs reconciled or "none"; "suspended" while in progress; or
-  "closed".
+- Verify: <command anchored on registered checks + round-specific assertions>.
+- Baseline: exit <code> — <why it fails before the change>. A passing
+  baseline makes this round vacuous; narrow or extend the command instead.
+- Research: findings or decision; subagents used: 0 by default (N with
+  justification).
+- Execute: what changed; evidence; partition: <writer = path/glob>[; ...].
+- Review: findings with dispositions; coverage declaration;
+  `reviewer: exit <code> — <summary>` (reviewer re-ran Verify).
+- Close: docs reconciled or "none"; "suspended <date> — <state>" while in
+  progress; or "closed".
 

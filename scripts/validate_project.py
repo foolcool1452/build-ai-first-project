@@ -679,7 +679,7 @@ class Validator:
                     if last_active is not None and last_active > today:
                         self.add("error", "AGENT_DATE", f"Agent '{agent_id}' Last active date is in the future.", registry)
                     elif last_active is not None and (today - last_active).days > freshness:
-                        advice = "" if (status or "").strip().lower() == "retired" else " Refresh Last active or set Status to idle/retired."
+                        advice = "" if (status or "").strip().lower() == "retired" else " Refresh Last active, set Status to idle/retired, or check docs/plans/active/ for suspended rounds."
                         self.add(
                             "warning", "AGENT_STALE",
                             f"Agent '{agent_id}' was last active {(today - last_active).days} days ago.{advice}",
